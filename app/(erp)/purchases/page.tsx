@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Search, Eye, X, Trash2, CheckCircle, Truck } from 'lucide-react';
-import type { PurchaseOrder, PurchaseOrderStatus, Supplier, Product } from '@/lib/types';
+import { Plus, Search, Eye, X, Trash2, CheckCircle, Truck, DollarSign, CreditCard, Printer } from 'lucide-react';
+import type { PurchaseOrder, PurchaseOrderStatus, Supplier, Product, PaymentMethod } from '@/lib/types';
 
 const statusConfig: Record<PurchaseOrderStatus, { label: string; color: string; bg: string }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bg: 'bg-gray-100' },
@@ -17,6 +17,7 @@ const statusConfig: Record<PurchaseOrderStatus, { label: string; color: string; 
 };
 
 interface PurchaseOrderWithSupplier extends Omit<PurchaseOrder, 'supplier'> {
+  supplier_id: string;
   supplier?: { name: string; code: string; phone?: string };
 }
 
@@ -31,6 +32,8 @@ export default function PurchasesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [viewingOrder, setViewingOrder] = useState<PurchaseOrderWithSupplier | null>(null);
   const [orderItems, setOrderItems] = useState<any[]>([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentOrder, setPaymentOrder] = useState<PurchaseOrderWithSupplier | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -62,6 +65,11 @@ export default function PurchasesPage() {
       .eq('purchase_order_id', order.id);
     setOrderItems(data || []);
     setViewingOrder(order);
+  }
+
+  function openPaymentModal(order: PurchaseOrderWithSupplier) {
+    setPaymentOrder(order);
+    setShowPaymentModal(true);
   }
 
   async function updateOrderStatus(order: PurchaseOrderWithSupplier, newStatus: PurchaseOrderStatus) {
@@ -157,9 +165,16 @@ export default function PurchasesPage() {
                     <td className="px-4 py-3 text-right text-sm font-bold text-red-600">{balance > 0 ? formatCurrency(balance) : '-'}</td>
                     <td className="px-4 py-3"><span className={`badge-status ${cfg.bg} ${cfg.color}`}>{cfg.label}</span></td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => viewOrderDetails(o)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition ml-auto">
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {balance > 0 && (o.status === 'approved' || o.status === 'received' || o.status === 'partially_received') && (
+                          <button onClick={() => openPaymentModal(o)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-green-50 text-muted-foreground hover:text-green-600 transition" title="Record Payment">
+                            <DollarSign className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button onClick={() => viewOrderDetails(o)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title="View Details">
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -185,6 +200,15 @@ export default function PurchasesPage() {
           items={orderItems}
           onClose={() => setViewingOrder(null)}
           onUpdateStatus={(status) => updateOrderStatus(viewingOrder, status)}
+          onRecordPayment={() => { setViewingOrder(null); openPaymentModal(viewingOrder); }}
+        />
+      )}
+
+      {showPaymentModal && paymentOrder && (
+        <RecordPOPaymentModal
+          order={paymentOrder}
+          onClose={() => { setShowPaymentModal(false); setPaymentOrder(null); }}
+          onSaved={() => { setShowPaymentModal(false); setPaymentOrder(null); loadData(); }}
         />
       )}
     </div>
@@ -365,11 +389,12 @@ function CreatePOModal({ suppliers, products, onClose, onSaved }: {
   );
 }
 
-function ViewPOModal({ order, items, onClose, onUpdateStatus }: {
+function ViewPOModal({ order, items, onClose, onUpdateStatus, onRecordPayment }: {
   order: PurchaseOrderWithSupplier;
   items: any[];
   onClose: () => void;
   onUpdateStatus: (status: PurchaseOrderStatus) => void;
+  onRecordPayment: () => void;
 }) {
   const cfg = statusConfig[order.status as PurchaseOrderStatus] || statusConfig.draft;
   const balance = Number(order.total_amount) - Number(order.amount_paid);
@@ -379,7 +404,12 @@ function ViewPOModal({ order, items, onClose, onUpdateStatus }: {
       <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-white">
           <h2 className="text-base font-bold">Purchase Order {order.po_number}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-2">
+            <button className="flex items-center gap-1 px-3 py-1.5 border border-border rounded-lg text-sm hover:bg-muted transition">
+              <Printer className="w-4 h-4" />Print
+            </button>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
         </div>
 
         <div className="p-6 space-y-6">
@@ -470,7 +500,145 @@ function ViewPOModal({ order, items, onClose, onUpdateStatus }: {
               </button>
             </div>
           )}
+
+          {balance > 0 && (order.status === 'approved' || order.status === 'received' || order.status === 'partially_received') && (
+            <div className="flex gap-2 pt-2 border-t border-border">
+              <button onClick={onRecordPayment} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-semibold transition">
+                <CreditCard className="w-4 h-4" />Record Payment
+              </button>
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function RecordPOPaymentModal({ order, onClose, onSaved }: { order: PurchaseOrderWithSupplier; onClose: () => void; onSaved: () => void }) {
+  const balance = Number(order.total_amount) - Number(order.amount_paid);
+  const [form, setForm] = useState({
+    amount: balance,
+    payment_method: 'bank_transfer' as PaymentMethod,
+    payment_date: new Date().toISOString().split('T')[0],
+    reference_number: '',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (form.amount <= 0) { setError('Amount must be greater than 0'); return; }
+    if (form.amount > balance) { setError(`Amount cannot exceed balance (${formatCurrency(balance)})`); return; }
+
+    setSaving(true);
+    setError('');
+
+    const paymentNumber = `POPAY-${Date.now().toString().slice(-6)}`;
+
+    const { error: payError } = await supabase.from('payments').insert({
+      payment_number: paymentNumber,
+      payment_type: 'made',
+      reference_type: 'purchase_order',
+      reference_id: order.id,
+      supplier_id: order.supplier_id,
+      amount: form.amount,
+      payment_method: form.payment_method,
+      payment_date: form.payment_date,
+      reference_number: form.reference_number || null,
+      notes: form.notes || null,
+    });
+
+    if (payError) { setError(payError.message); setSaving(false); return; }
+
+    const newAmountPaid = Number(order.amount_paid) + form.amount;
+
+    const { error: poError } = await supabase
+      .from('purchase_orders')
+      .update({
+        amount_paid: newAmountPaid,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', order.id);
+
+    if (poError) { setError(poError.message); setSaving(false); return; }
+
+    // Update supplier outstanding balance
+    const { data: currentSupplier } = await supabase
+      .from('suppliers')
+      .select('outstanding_balance, total_purchases')
+      .eq('id', order.supplier_id)
+      .single();
+
+    if (currentSupplier) {
+      await supabase
+        .from('suppliers')
+        .update({
+          outstanding_balance: Math.max(0, (currentSupplier.outstanding_balance || 0) - form.amount),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.supplier_id);
+    }
+
+    toast({ title: 'Success', description: `Payment of ${formatCurrency(form.amount)} recorded` });
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold">Record Payment to Supplier</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+
+          <div className="bg-muted/30 rounded-lg p-3 flex justify-between">
+            <span className="text-sm text-muted-foreground">Outstanding Balance</span>
+            <span className="text-sm font-bold text-red-600">{formatCurrency(balance)}</span>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Payment Amount *</label>
+            <input type="number" min="0.01" max={balance} step="0.01" value={form.amount} onChange={e => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Payment Method *</label>
+            <select required value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value as PaymentMethod })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cash">Cash</option>
+              <option value="bkash">bKash</option>
+              <option value="nagad">Nagad</option>
+              <option value="rocket">Rocket</option>
+              <option value="card">Card</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Payment Date</label>
+            <input type="date" value={form.payment_date} onChange={e => setForm({ ...form, payment_date: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Reference Number</label>
+            <input type="text" value={form.reference_number} onChange={e => setForm({ ...form, reference_number: e.target.value })} placeholder="Transaction ID, cheque no." className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60">
+              {saving ? 'Recording...' : 'Record Payment'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
