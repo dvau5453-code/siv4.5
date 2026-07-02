@@ -25,11 +25,12 @@ interface InvoiceItem {
   id: string;
   invoice_id: string;
   product_id: string;
-  product: { name: string; sku: string; unit: string };
+  product?: { name: string; sku: string; unit: string };
   quantity: number;
   unit_price: number;
   cost_price: number;
   subtotal: number;
+  remaining_qty?: number;
 }
 
 interface SalesReturn {
@@ -328,9 +329,38 @@ function ReturnModal({ invoices, onClose, onSaved }: {
     setSelectedInvoice(invoice);
     const { data } = await supabase
       .from('invoice_items')
-      .select('*, product:products(name, sku, unit)')
+      .select('id, invoice_id, product_id, quantity, unit_price, cost_price, subtotal, product:products(name, sku, unit)')
       .eq('invoice_id', invoice.id);
-    setItems(data || []);
+
+    // Fetch previously returned quantities for each item
+    const itemIds = (data || []).map(i => i.id);
+    const { data: returnedItems } = itemIds.length > 0
+      ? await supabase
+          .from('sales_return_items')
+          .select('invoice_item_id, quantity_returned')
+          .in('invoice_item_id', itemIds)
+      : { data: null };
+
+    const returnedMap = new Map<string, number>();
+    (returnedItems || []).forEach(ri => {
+      const current = returnedMap.get(ri.invoice_item_id) || 0;
+      returnedMap.set(ri.invoice_item_id, current + ri.quantity_returned);
+    });
+
+    // Add remaining_qty to each item and handle product object
+    const itemsWithRemaining: InvoiceItem[] = (data || []).map((item: any) => ({
+      id: item.id,
+      invoice_id: item.invoice_id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      cost_price: item.cost_price || 0,
+      subtotal: item.subtotal,
+      product: Array.isArray(item.product) ? item.product[0] : item.product,
+      remaining_qty: item.quantity - (returnedMap.get(item.id) || 0)
+    }));
+
+    setItems(itemsWithRemaining);
     setStep(2);
   }
 
@@ -511,6 +541,38 @@ function ReturnModal({ invoices, onClose, onSaved }: {
           journal_entry_id: journalEntry.id
         }))
       );
+
+      // Update account balances for all affected accounts
+      const affectedAccountIds = [...new Set(journalLines.map(l => l.account_id))];
+      for (const accountId of affectedAccountIds) {
+        const accountLines = journalLines.filter(l => l.account_id === accountId);
+        const totalDebit = accountLines.reduce((sum, l) => sum + Number(l.debit || 0), 0);
+        const totalCredit = accountLines.reduce((sum, l) => sum + Number(l.credit || 0), 0);
+
+        // Get current balance
+        const { data: currentAccount } = await supabase
+          .from('accounts')
+          .select('balance, type')
+          .eq('id', accountId)
+          .single();
+
+        if (currentAccount) {
+          // For asset/expense accounts: debit increases, credit decreases
+          // For liability/equity/revenue accounts: credit increases, debit decreases
+          const isDebitAccount = ['asset', 'expense'].includes(currentAccount.type);
+          const netChange = isDebitAccount
+            ? totalDebit - totalCredit
+            : totalCredit - totalDebit;
+
+          await supabase
+            .from('accounts')
+            .update({
+              balance: (currentAccount.balance || 0) + netChange,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', accountId);
+        }
+      }
 
       // Create payment record for the refund (only for non-store-credit refunds)
       let paymentId = null;
@@ -726,12 +788,17 @@ function ReturnModal({ invoices, onClose, onSaved }: {
               <div className="border-t border-border pt-4">
                 <h4 className="text-sm font-medium mb-3">Select items to return:</h4>
                 <div className="space-y-2">
-                  {items.map(item => (
+                  {items.filter(item => (item.remaining_qty || item.quantity) > 0).map(item => {
+                    const maxReturnable = item.remaining_qty ?? item.quantity;
+                    return (
                     <div key={item.id} className="p-3 border border-border rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <p className="font-medium text-foreground text-sm">{item.product?.name}</p>
                           <p className="text-xs text-muted-foreground">SKU: {item.product?.sku} | Unit: {item.product?.unit}</p>
+                          {maxReturnable < item.quantity && (
+                            <p className="text-xs text-amber-600">Already returned: {item.quantity - maxReturnable} | Remaining: {maxReturnable}</p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="font-semibold">{formatCurrency(item.unit_price)}/unit</p>
@@ -742,15 +809,15 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex-1">
-                          <label className="text-xs text-muted-foreground">Return Qty (max: {item.quantity})</label>
+                          <label className="text-xs text-muted-foreground">Return Qty (max: {maxReturnable})</label>
                           <input
                             type="number"
                             min="0"
-                            max={item.quantity}
+                            max={maxReturnable}
                             value={returnItems[item.id]?.qty || 0}
                             onChange={e => setReturnItems({
                               ...returnItems,
-                              [item.id]: { qty: Number(e.target.value), reason: returnItems[item.id]?.reason || '' }
+                              [item.id]: { qty: Math.min(Number(e.target.value), maxReturnable), reason: returnItems[item.id]?.reason || '' }
                             })}
                             className="w-full border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                           />
@@ -775,7 +842,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
 

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ShoppingCart, Plus, Search, Eye, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, CircleAlert as AlertCircle, Printer, DollarSign, Send, CreditCard, UserPlus } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, CircleAlert as AlertCircle, Printer, DollarSign, Send, CreditCard, UserPlus, RotateCcw, Package } from 'lucide-react';
 import type { Invoice, InvoiceStatus, Customer, Product, Payment, PaymentMethod, ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 import ProductSearchInput from '@/components/ui/ProductSearchInput';
@@ -22,6 +22,7 @@ const statusConfig: Record<InvoiceStatus, { label: string; color: string; bg: st
 
 interface InvoiceWithCustomer extends Omit<Invoice, 'customer'> {
   customer?: { name: string; code: string; phone?: string; address?: string };
+  sales_returns?: { id: string; return_number: string; total_refund_amount: number; items: { quantity_returned: number }[] }[];
 }
 
 interface InvoiceItem {
@@ -55,18 +56,33 @@ export default function SalesPage() {
 
   async function loadData() {
     setLoading(true);
-    const [invRes, custRes, prodRes, settingsRes] = await Promise.all([
+    const [invRes, custRes, prodRes, settingsRes, returnsRes] = await Promise.all([
       supabase.from('invoices').select('*, customer:customers(name, code, phone, address)').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').eq('is_active', true).order('name'),
       supabase.from('products').select(`*, units:product_units(id, product_id, unit_name, unit_short, conversion_factor, is_base_unit, is_sale_unit, price, cost_price, is_active, sort_order), inventory_items(quantity_on_hand)`).eq('is_active', true).order('name'),
       supabase.from('app_settings').select('setting_value').eq('setting_key', 'company').maybeSingle(),
+      supabase.from('sales_returns').select('id, invoice_id, return_number, total_refund_amount, items:sales_return_items(quantity_returned)'),
     ]);
-    setInvoices(invRes.data || []);
+
+    // Attach sales returns to their corresponding invoices
+    const returnsMap = new Map<string, any[]>();
+    (returnsRes.data || []).forEach((ret: any) => {
+      const existing = returnsMap.get(ret.invoice_id) || [];
+      existing.push(ret);
+      returnsMap.set(ret.invoice_id, existing);
+    });
+
+    const invoicesWithReturns = (invRes.data || []).map((inv: any) => ({
+      ...inv,
+      sales_returns: returnsMap.get(inv.id) || []
+    }));
+
+    setInvoices(invoicesWithReturns);
     setCustomers(custRes.data || []);
     setProducts(prodRes.data || []);
     if (settingsRes.data?.setting_value) setCompanySettings(settingsRes.data.setting_value);
 
-    const allInv = invRes.data || [];
+    const allInv = invoicesWithReturns;
     setStats({
       total: allInv.reduce((s: number, i: any) => s + Number(i.total_amount), 0),
       paid: allInv.filter((i: any) => i.status === 'paid').reduce((s: number, i: any) => s + Number(i.total_amount), 0),
@@ -351,16 +367,46 @@ export default function SalesPage() {
                 <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground text-sm">No invoices found</td></tr>
               ) : filtered.map((inv) => {
                 const cfg = statusConfig[inv.status as InvoiceStatus] || statusConfig.draft;
+                const hasReturns = inv.sales_returns && inv.sales_returns.length > 0;
+                const totalReturnedQty = hasReturns
+                  ? inv.sales_returns!.flatMap(r => r.items?.map(i => i.quantity_returned) || []).reduce((a, b) => a + b, 0)
+                  : 0;
+                const totalRefundAmount = hasReturns
+                  ? inv.sales_returns!.reduce((sum, r) => sum + Number(r.total_refund_amount), 0)
+                  : 0;
                 return (
                   <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3"><span className="text-sm font-semibold text-blue-600">{inv.invoice_number}</span></td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-semibold text-blue-600">{inv.invoice_number}</span>
+                      {hasReturns && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded">
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            {totalReturnedQty} returned
+                          </span>
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded">
+                            {formatCurrency(totalRefundAmount)} refund
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-foreground">{inv.customer?.name || '-'}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(inv.invoice_date)}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{inv.due_date ? formatDate(inv.due_date) : '-'}</td>
                     <td className="px-4 py-3 text-right text-sm font-semibold text-foreground">{formatCurrency(inv.total_amount)}</td>
                     <td className="px-4 py-3 text-right text-sm text-green-600 font-semibold">{formatCurrency(inv.amount_paid)}</td>
                     <td className="px-4 py-3 text-right text-sm font-bold text-red-600">{formatCurrency(inv.balance_due || (inv.total_amount - inv.amount_paid))}</td>
-                    <td className="px-4 py-3"><span className={`badge-status ${cfg.bg} ${cfg.color}`}>{cfg.label}</span></td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        <span className={`badge-status ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
+                        {hasReturns && (
+                          <span className="badge-status bg-amber-100 text-amber-700 flex items-center gap-0.5">
+                            <Package className="w-2.5 h-2.5" />
+                            {inv.sales_returns!.length} return{inv.sales_returns!.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {inv.status === 'draft' && (
