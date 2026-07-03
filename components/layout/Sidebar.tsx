@@ -74,7 +74,14 @@ const navItems: NavItem[] = [
   },
   { title: 'Expenses', href: '/expenses', icon: Receipt },
   { title: 'Online Store', href: '/online-store', icon: Store, badge: 'New' },
-  { title: 'Employees', href: '/employees', icon: UserRound },
+  {
+    title: 'HR Management',
+    icon: UserRound,
+    children: [
+      { title: 'Employees', href: '/employees' },
+      { title: 'Attendance', href: '/hr/attendance' },
+    ],
+  },
   {
     title: 'Reports',
     icon: BarChart3,
@@ -89,7 +96,7 @@ const navItems: NavItem[] = [
 
 export default function Sidebar({ collapsed }: SidebarProps) {
   const pathname = usePathname();
-  const [openMenus, setOpenMenus] = useState<string[]>(['Inventory', 'Sales', 'Purchases', 'CRM']);
+  const [openMenus, setOpenMenus] = useState<string[]>(['Inventory', 'Sales', 'Purchases', 'CRM', 'HR Management']);
 
   function toggleMenu(title: string) {
     setOpenMenus((prev) =>

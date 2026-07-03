@@ -314,7 +314,7 @@ export default function POSPage() {
   const [showMobileCart, setShowMobileCart] = useState(false);
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)] lg:h-[calc(100vh-120px)] gap-4 animate-fade-in">
+    <div className="flex flex-col lg:flex-row h-[calc(100dvh-144px)] lg:h-[calc(100vh-120px)] gap-4 animate-fade-in">
       {/* Mobile Cart Overlay */}
       {showMobileCart && (
         <div
@@ -324,7 +324,7 @@ export default function POSPage() {
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 mb-4 shrink-0">
+        <div className="flex flex-col gap-2 mb-3 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input

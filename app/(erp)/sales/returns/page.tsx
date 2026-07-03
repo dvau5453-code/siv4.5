@@ -680,7 +680,9 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       // Update invoice amount_paid
       const newAmountPaid = Math.max(0, selectedInvoice.amount_paid - totalRefundAmount);
       const newBalanceDue = selectedInvoice.total_amount - newAmountPaid;
-      const newStatus = newBalanceDue <= 0 ? 'paid' :
+      const isFullyRefunded = totalRefundAmount >= selectedInvoice.total_amount;
+      const newStatus = isFullyRefunded ? 'refunded' :
+                        newBalanceDue <= 0 ? 'paid' :
                         newAmountPaid > 0 ? 'partially_paid' : 'sent';
 
       await supabase.from('invoices').update({
