@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
       { title: 'Journal Entries', href: '/accounting/journal' },
       { title: 'Aging & Dues', href: '/accounting/aging' },
       { title: 'Payment Methods', href: '/accounting/payment-methods' },
+      { title: 'JE Guide', href: '/accounting/journal-guide' },
     ],
   },
   { title: 'Expenses', href: '/expenses', icon: Receipt },
