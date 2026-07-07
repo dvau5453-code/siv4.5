@@ -29,6 +29,7 @@ interface InvoiceItem {
   quantity: number;
   unit_price: number;
   cost_price: number;
+  discount_percent: number;
   subtotal: number;
   remaining_qty?: number;
 }
@@ -56,6 +57,7 @@ interface SalesReturnItem {
   product?: { name: string; sku: string };
   quantity_returned: number;
   unit_price: number;
+  discount_percent: number;
   cost_price: number;
   subtotal: number;
   reason: string;
@@ -329,7 +331,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
     setSelectedInvoice(invoice);
     const { data } = await supabase
       .from('invoice_items')
-      .select('id, invoice_id, product_id, quantity, unit_price, cost_price, subtotal, product:products(name, sku, unit)')
+      .select('id, invoice_id, product_id, quantity, unit_price, cost_price, discount_percent, subtotal, product:products(name, sku, unit)')
       .eq('invoice_id', invoice.id);
 
     // Fetch previously returned quantities for each item
@@ -355,6 +357,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       quantity: item.quantity,
       unit_price: item.unit_price,
       cost_price: item.cost_price || 0,
+      discount_percent: item.discount_percent || 0,
       subtotal: item.subtotal,
       product: Array.isArray(item.product) ? item.product[0] : item.product,
       remaining_qty: item.quantity - (returnedMap.get(item.id) || 0)
@@ -372,7 +375,9 @@ function ReturnModal({ invoices, onClose, onSaved }: {
 
   const totalRefundAmount = Object.entries(returnItems).reduce((sum, [itemId, { qty }]) => {
     const item = items.find(i => i.id === itemId);
-    return sum + (item ? qty * item.unit_price : 0);
+    if (!item) return sum;
+    const discountMultiplier = 1 - (item.discount_percent || 0) / 100;
+    return sum + qty * item.unit_price * discountMultiplier;
   }, 0);
 
   const totalCOGS = Object.entries(returnItems).reduce((sum, [itemId, { qty }]) => {
@@ -629,14 +634,16 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         const item = items.find(i => i.id === itemId);
         if (!item) continue;
 
+        const discountMultiplier = 1 - (item.discount_percent || 0) / 100;
         await supabase.from('sales_return_items').insert({
           sales_return_id: salesReturn.id,
           invoice_item_id: itemId,
           product_id: item.product_id,
           quantity_returned: qty,
           unit_price: item.unit_price,
+          discount_percent: item.discount_percent || 0,
           cost_price: item.cost_price || 0,
-          subtotal: qty * item.unit_price,
+          subtotal: qty * item.unit_price * discountMultiplier,
           reason: reason || 'Not specified'
         });
 
@@ -805,6 +812,9 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                         </div>
                         <div className="text-right">
                           <p className="font-semibold">{formatCurrency(item.unit_price)}/unit</p>
+                          {item.discount_percent > 0 && (
+                            <p className="text-xs text-blue-600">Discount: {item.discount_percent}%</p>
+                          )}
                           {item.cost_price > 0 && (
                             <p className="text-xs text-muted-foreground">Cost: {formatCurrency(item.cost_price)}</p>
                           )}
@@ -998,6 +1008,9 @@ function ViewReturnModal({ returnData, onClose }: {
                       <div className="text-right">
                         <p className="text-sm font-medium">{formatCurrency(item.subtotal)}</p>
                         <p className="text-xs text-muted-foreground">Qty: {item.quantity_returned}</p>
+                        {item.discount_percent > 0 && (
+                          <p className="text-xs text-blue-600">Discount: {item.discount_percent}%</p>
+                        )}
                       </div>
                     </div>
                     {item.reason && (
