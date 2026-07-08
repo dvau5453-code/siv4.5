@@ -42,6 +42,7 @@ interface CustomerStats {
   activeDeliveries: number;
   manualReceivables: number;
   manualReceivablesOutstanding: number;
+  storeCreditBalance: number;
 }
 
 export default function CustomerDetailPage() {
@@ -54,7 +55,7 @@ export default function CustomerDetailPage() {
   const [stats, setStats] = useState<CustomerStats>({
     totalInvoices: 0, totalPaid: 0, totalOutstanding: 0, totalPurchases: 0,
     totalRefunds: 0, netPurchases: 0, activeDeliveries: 0,
-    manualReceivables: 0, manualReceivablesOutstanding: 0
+    manualReceivables: 0, manualReceivablesOutstanding: 0, storeCreditBalance: 0
   });
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -81,7 +82,7 @@ export default function CustomerDetailPage() {
     }
     setCustomer(custData);
 
-    const [invRes, invTotalsRes, quoteRes, delivRes, receivableRes, receivablePaymentsRes, returnsRes] = await Promise.all([
+    const [invRes, invTotalsRes, quoteRes, delivRes, receivableRes, receivablePaymentsRes, returnsRes, creditRes] = await Promise.all([
       supabase.from('invoices').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(20),
       supabase.from('invoices').select('total_amount').eq('customer_id', customerId),
       supabase.from('quotations').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(10),
@@ -89,6 +90,7 @@ export default function CustomerDetailPage() {
       supabase.from('journal_entries').select('id, entry_number, entry_date, description, total_debit, created_at').eq('customer_id', customerId).eq('reference_type', 'receivable').eq('is_posted', true).order('entry_date', { ascending: false }),
       supabase.from('payments').select('reference_id, amount').eq('reference_type', 'receivable'),
       supabase.from('sales_returns').select('*, invoice:invoices(invoice_number)').eq('customer_id', customerId).order('created_at', { ascending: false }),
+      supabase.from('customer_store_credits').select('balance').eq('customer_id', customerId).eq('status', 'active'),
     ]);
 
     setInvoices(invRes.data || []);
@@ -133,6 +135,7 @@ export default function CustomerDetailPage() {
       activeDeliveries: (delivRes.data || []).filter(d => d.status !== 'delivered' && d.status !== 'returned').length,
       manualReceivables: receivablesWithPayments.length,
       manualReceivablesOutstanding,
+      storeCreditBalance: (creditRes.data || []).reduce((s: number, c: any) => s + Number(c.balance), 0),
     });
 
     setLoading(false);
@@ -275,6 +278,12 @@ export default function CustomerDetailPage() {
                 <p className="text-lg font-bold text-slate-600">{formatCurrency(stats.totalOutstanding)}</p>
                 <p className="text-xs text-slate-600">Outstanding</p>
               </div>
+              {stats.storeCreditBalance > 0 && (
+                <div className="bg-purple-50 rounded-lg p-3 text-center col-span-2 border border-purple-100">
+                  <p className="text-lg font-bold text-purple-600">{formatCurrency(stats.storeCreditBalance)}</p>
+                  <p className="text-xs text-purple-700 font-medium">Store Credit Available</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

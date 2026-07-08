@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, Package, ShoppingCart, ShoppingBag, Users, FolderKanban, Truck, Calculator, Store, UserRound, ChartBar as BarChart3, Settings, Building2, ChevronDown, ChevronRight, FileText, Receipt, TrendingUp, Boxes, Shield, ArrowRightLeft, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, ShoppingBag, Users, FolderKanban, Truck, Calculator, Store, UserRound, ChartBar as BarChart3, Settings, Building2, ChevronDown, ChevronRight, FileText, Receipt, TrendingUp, Boxes, Shield, ArrowRightLeft, BookOpen, Wallet, RotateCcw } from 'lucide-react';
 
 interface NavItem {
   title: string;
@@ -38,6 +38,8 @@ const navItems: NavItem[] = [
       { title: 'Invoices', href: '/sales' },
       { title: 'POS', href: '/sales/pos' },
       { title: 'Returns', href: '/sales/returns' },
+      { title: 'Refunds', href: '/sales/refunds' },
+      { title: 'Store Credit', href: '/sales/store-credit' },
     ],
   },
   {

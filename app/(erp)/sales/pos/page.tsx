@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet } from 'lucide-react';
 import type { ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 
@@ -64,6 +64,8 @@ export default function POSPage() {
   const [selectedBrand, setSelectedBrand] = useState('');
   const [brandDropdownOpen, setBrandDropdownOpen] = useState(false);
   const [brandSearch, setBrandSearch] = useState('');
+  const [storeCreditBalance, setStoreCreditBalance] = useState(0);
+  const [applyStoreCredit, setApplyStoreCredit] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -74,6 +76,25 @@ export default function POSPage() {
     supabase.from('brands').select('id, name').eq('is_active', true).order('name')
       .then(({ data }) => setBrands(data || []));
   }, []);
+
+  // Load store credit balance when customer changes
+  useEffect(() => {
+    if (!selectedCustomer || selectedCustomer === WALK_IN_CUSTOMER_ID) {
+      setStoreCreditBalance(0);
+      setApplyStoreCredit(false);
+      return;
+    }
+    supabase
+      .from('customer_store_credits')
+      .select('balance')
+      .eq('customer_id', selectedCustomer)
+      .eq('status', 'active')
+      .then(({ data }) => {
+        const total = (data || []).reduce((s: number, c: any) => s + Number(c.balance), 0);
+        setStoreCreditBalance(total);
+        if (total === 0) setApplyStoreCredit(false);
+      });
+  }, [selectedCustomer]);
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -216,6 +237,8 @@ export default function POSPage() {
       setLastInvoiceNumber(invoiceNumber);
 
       const customerId = selectedCustomer;
+      const creditToApply = applyStoreCredit ? Math.min(storeCreditBalance, total) : 0;
+      const cashToPay = total - creditToApply;
 
       const { data: invoice, error: invError } = await supabase
         .from('invoices')
@@ -228,7 +251,7 @@ export default function POSPage() {
           tax_amount: 0,
           total_amount: total,
           amount_paid: total,
-          status: 'paid',
+          status: creditToApply > 0 && cashToPay === 0 ? 'paid' : (cashToPay > 0 && cashToPay < total ? 'partial' : 'paid'),
           is_pos: true,
         })
         .select()
@@ -256,18 +279,60 @@ export default function POSPage() {
 
       // Stock deduction is handled by the DB trigger on invoice_items INSERT
 
-      const { error: payError } = await supabase.from('payments').insert({
-        payment_number: `PAY-${Date.now().toString().slice(-6)}`,
-        payment_type: 'received',
-        reference_type: 'invoice',
-        reference_id: invoice.id,
-        customer_id: customerId,
-        amount: total,
-        payment_method: paymentMethod,
-        payment_date: new Date().toISOString().split('T')[0],
-        notes: 'POS sale',
-      });
-      if (payError) console.error('Payment record error:', payError.message);
+      // Record payment: if store credit is applied, record the cash/card portion separately
+      if (creditToApply > 0) {
+        // Redeem store credit
+        const { data: activeCredits } = await supabase
+          .from('customer_store_credits')
+          .select('id, balance')
+          .eq('customer_id', customerId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true });
+
+        let remainingToRedeem = creditToApply;
+        for (const credit of (activeCredits || [])) {
+          if (remainingToRedeem <= 0) break;
+          const redeemAmount = Math.min(Number(credit.balance), remainingToRedeem);
+          await supabase.from('store_credit_redemptions').insert({
+            store_credit_id: credit.id,
+            customer_id: customerId,
+            invoice_id: invoice.id,
+            amount: redeemAmount,
+            notes: `Redeemed for ${invoiceNumber}`,
+          });
+          remainingToRedeem -= redeemAmount;
+        }
+
+        // Record store credit as a payment
+        const { error: creditPayError } = await supabase.from('payments').insert({
+          payment_number: `PAY-SC-${Date.now().toString().slice(-6)}`,
+          payment_type: 'received',
+          reference_type: 'invoice',
+          reference_id: invoice.id,
+          customer_id: customerId,
+          amount: creditToApply,
+          payment_method: 'store_credit',
+          payment_date: new Date().toISOString().split('T')[0],
+          notes: `Store credit redeemed for ${invoiceNumber}`,
+        });
+        if (creditPayError) console.error('Store credit payment record error:', creditPayError.message);
+      }
+
+      // Record cash/card payment for the remaining amount
+      if (cashToPay > 0) {
+        const { error: payError } = await supabase.from('payments').insert({
+          payment_number: `PAY-${Date.now().toString().slice(-6)}`,
+          payment_type: 'received',
+          reference_type: 'invoice',
+          reference_id: invoice.id,
+          customer_id: customerId,
+          amount: cashToPay,
+          payment_method: paymentMethod,
+          payment_date: new Date().toISOString().split('T')[0],
+          notes: creditToApply > 0 ? `POS sale (partial store credit: ${formatCurrency(creditToApply)})` : 'POS sale',
+        });
+        if (payError) console.error('Payment record error:', payError.message);
+      }
 
       if (customerId !== WALK_IN_CUSTOMER_ID) {
         const { data: custData } = await supabase
@@ -286,6 +351,8 @@ export default function POSPage() {
       setCart([]);
       setDiscount(0);
       setSelectedCustomer('');
+      setStoreCreditBalance(0);
+      setApplyStoreCredit(false);
       setOrderComplete(true);
       toast({ title: 'Success', description: `Order ${invoiceNumber} completed successfully` });
       loadProducts(search);
@@ -575,6 +642,42 @@ export default function POSPage() {
               {discount > 0 && <div className="flex justify-between text-red-500"><span>Discount ({discount}%)</span><span>-{formatCurrency(discountAmount)}</span></div>}
               <div className="flex justify-between font-bold text-base text-foreground pt-1 border-t border-border"><span>Total</span><span>{formatCurrency(total)}</span></div>
             </div>
+
+            {/* Store Credit */}
+            {storeCreditBalance > 0 && selectedCustomer !== WALK_IN_CUSTOMER_ID && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setApplyStoreCredit(!applyStoreCredit)}
+                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border-2 transition text-xs font-medium ${
+                    applyStoreCredit ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-border text-muted-foreground hover:border-purple-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-3.5 h-3.5" />
+                    <span>Store Credit Available</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold">{formatCurrency(storeCreditBalance)}</span>
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${applyStoreCredit ? 'bg-purple-500 border-purple-500' : 'border-muted-foreground'}`}>
+                      {applyStoreCredit && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
+                    </div>
+                  </div>
+                </button>
+                {applyStoreCredit && (
+                  <div className="p-2 bg-purple-50 rounded-lg space-y-1 text-xs">
+                    <div className="flex justify-between text-purple-700">
+                      <span>Credit Applied</span>
+                      <span className="font-bold">-{formatCurrency(Math.min(storeCreditBalance, total))}</span>
+                    </div>
+                    <div className="flex justify-between text-purple-600">
+                      <span>Remaining to Pay</span>
+                      <span className="font-bold">{formatCurrency(Math.max(0, total - Math.min(storeCreditBalance, total)))}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-1.5">
               {displayMethods.map(m => {

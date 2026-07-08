@@ -727,24 +727,20 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         updated_at: new Date().toISOString(),
       }).eq('id', selectedInvoice.id);
 
-      // Update customer outstanding balance for store credit
-      if (isStoreCredit && selectedInvoice.customer_id) {
-        const { data: currentCustomer } = await supabase
-          .from('customers')
-          .select('outstanding_balance')
-          .eq('id', selectedInvoice.customer_id)
-          .maybeSingle();
+      // Create store credit record if refund method is store credit
+      if (isStoreCredit && selectedInvoice.customer_id && salesReturn) {
+        const { data: creditNumberData } = await supabase.rpc('generate_credit_number');
+        const creditNumber = creditNumberData || `SC-${Date.now().toString().slice(-6)}`;
 
-        if (currentCustomer) {
-          // Store credit increases what the customer is owed (negative balance or credit)
-          await supabase
-            .from('customers')
-            .update({
-              outstanding_balance: (currentCustomer.outstanding_balance || 0) - cappedRefundAmount,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', selectedInvoice.customer_id);
-        }
+        await supabase.from('customer_store_credits').insert({
+          customer_id: selectedInvoice.customer_id,
+          sales_return_id: salesReturn.id,
+          credit_number: creditNumber,
+          amount: cappedRefundAmount,
+          balance: cappedRefundAmount,
+          status: 'active',
+          notes: `Store credit from return ${returnNumber} (Invoice ${selectedInvoice.invoice_number})`,
+        });
       }
 
       toast({
