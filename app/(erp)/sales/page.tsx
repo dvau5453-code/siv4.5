@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ShoppingCart, Plus, Search, Eye, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, CircleAlert as AlertCircle, Printer, DollarSign, Send, CreditCard, UserPlus, RotateCcw, Package, Filter, ChevronDown } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, Printer, DollarSign, Send, CreditCard, UserPlus, RotateCcw, Package, Filter, ChevronDown, Wallet, CircleArrowDown as ArrowDownCircle, CircleArrowUp as ArrowUpCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import type { Invoice, InvoiceStatus, Customer, Product, Payment, PaymentMethod, ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 import ProductSearchInput from '@/components/ui/ProductSearchInput';
@@ -42,6 +43,7 @@ interface InvoiceItem {
 }
 
 export default function SalesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<InvoiceWithCustomer[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -56,8 +58,9 @@ export default function SalesPage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [productFilteredIds, setProductFilteredIds] = useState<Set<string> | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<{ code: string; name: string }[]>([]);
-  const [stats, setStats] = useState({ total: 0, paid: 0, outstanding: 0, overdue: 0 });
+  const [stats, setStats] = useState({ total: 0, paid: 0, refunded: 0, netCollected: 0, outstanding: 0, overdue: 0, storeCreditBalance: 0 });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showNetCollectedModal, setShowNetCollectedModal] = useState(false);
   const [viewingInvoice, setViewingInvoice] = useState<InvoiceWithCustomer | null>(null);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
   const [invoicePayments, setInvoicePayments] = useState<any[]>([]);
@@ -108,11 +111,27 @@ export default function SalesPage() {
     if (settingsRes.data?.setting_value) setCompanySettings(settingsRes.data.setting_value);
 
     const allInv = invoicesWithReturns;
+    const totalRefunded = allInv.reduce((s: number, i: any) => {
+      const refunds = (i.sales_returns || []).reduce((rs: number, r: any) => rs + Number(r.total_refund_amount), 0);
+      return s + refunds;
+    }, 0);
+    const totalCollected = allInv.reduce((s: number, i: any) => s + Number(i.amount_paid), 0);
+
+    // Fetch store credit balance
+    const { data: creditData } = await supabase
+      .from('customer_store_credits')
+      .select('balance')
+      .eq('status', 'active');
+    const storeCreditBalance = (creditData || []).reduce((s: number, c: any) => s + Number(c.balance), 0);
+
     setStats({
       total: allInv.reduce((s: number, i: any) => s + Number(i.total_amount), 0),
-      paid: allInv.filter((i: any) => i.status === 'paid').reduce((s: number, i: any) => s + Number(i.total_amount), 0),
+      paid: totalCollected,
+      refunded: totalRefunded,
+      netCollected: totalCollected - totalRefunded,
       outstanding: allInv.reduce((s: number, i: any) => s + Number(i.balance_due || 0), 0),
       overdue: allInv.filter((i: any) => i.status === 'overdue').length,
+      storeCreditBalance,
     });
     setLoading(false);
   }
@@ -204,6 +223,23 @@ export default function SalesPage() {
                 payment_method: p.payment_method,
               }))}
             />
+          </div>
+
+          {/* Product links (hidden on print) */}
+          <div className="no-print px-8 py-3 border-t border-border">
+            <p className="text-xs text-muted-foreground mb-2">Products in this invoice (click to view details):</p>
+            <div className="flex flex-wrap gap-2">
+              {items.map((item: any, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => router.push(`/inventory/${item.product_id}`)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/40 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-xs font-medium transition border border-transparent hover:border-blue-200"
+                >
+                  <Package className="w-3 h-3" />
+                  {item.product?.name || 'Unknown'}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Action buttons (hidden on print) */}
@@ -307,16 +343,25 @@ export default function SalesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         {[
-          { label: 'Total Sales', value: formatCurrency(stats.total), icon: TrendingUp, color: 'text-blue-500 bg-blue-50' },
-          { label: 'Collected', value: formatCurrency(stats.paid), icon: CheckCircle2, color: 'text-green-500 bg-green-50' },
-          { label: 'Outstanding', value: formatCurrency(stats.outstanding), icon: Clock, color: 'text-amber-500 bg-amber-50' },
-          { label: 'Overdue Invoices', value: stats.overdue, icon: AlertCircle, color: 'text-red-500 bg-red-50' },
+          { label: 'Total Sales', value: formatCurrency(stats.total), icon: TrendingUp, color: 'text-blue-500 bg-blue-50', clickable: false },
+          { label: 'Collected', value: formatCurrency(stats.paid), icon: CheckCircle2, color: 'text-green-500 bg-green-50', clickable: false },
+          { label: 'Refunded', value: formatCurrency(stats.refunded), icon: RotateCcw, color: 'text-purple-500 bg-purple-50', clickable: false },
+          { label: 'Net Collected', value: formatCurrency(stats.netCollected), icon: DollarSign, color: 'text-teal-500 bg-teal-50', clickable: true },
+          { label: 'Store Credit', value: formatCurrency(stats.storeCreditBalance), icon: Wallet, color: 'text-indigo-500 bg-indigo-50', clickable: false },
+          { label: 'Outstanding', value: formatCurrency(stats.outstanding), icon: Clock, color: 'text-amber-500 bg-amber-50', clickable: false },
         ].map(s => (
-          <div key={s.label} className="stat-card flex items-center gap-3">
+          <div
+            key={s.label}
+            className={`stat-card flex items-center gap-3 ${s.clickable ? 'cursor-pointer hover:shadow-md hover:border-teal-300 transition-all' : ''}`}
+            onClick={s.clickable ? () => setShowNetCollectedModal(true) : undefined}
+          >
             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${s.color}`}><s.icon className="w-5 h-5" /></div>
-            <div><p className="text-xs text-muted-foreground">{s.label}</p><p className="text-lg font-bold text-foreground">{s.value}</p></div>
+            <div>
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className="text-lg font-bold text-foreground">{s.value}</p>
+            </div>
           </div>
         ))}
       </div>
@@ -534,6 +579,13 @@ export default function SalesPage() {
           onSaved={() => { setShowPaymentModal(false); setPaymentInvoice(null); loadData(); }}
         />
       )}
+
+      {showNetCollectedModal && (
+        <NetCollectedBreakdownModal
+          stats={stats}
+          onClose={() => setShowNetCollectedModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -544,6 +596,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const router = useRouter();
   const [form, setForm] = useState({
     customer_id: '',
     invoice_date: new Date().toISOString().split('T')[0],
@@ -849,7 +902,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
                     return (
                       <tr key={index}>
                         <td className="px-3 py-2">
-                          <p className="text-sm font-medium text-foreground">{item.product_name}</p>
+                          <p className="text-sm font-medium text-foreground hover:text-blue-600 hover:underline cursor-pointer" onClick={() => router.push(`/inventory/${item.product_id}`)}>{item.product_name}</p>
                           <p className="text-[10px] text-muted-foreground">{item.product_sku}</p>
                           {item.stock_qty !== null && (
                             <p className={`text-[10px] font-medium ${item.stock_qty > 0 ? (item.base_quantity > item.stock_qty ? 'text-red-500' : 'text-green-600') : 'text-red-500'}`}>
@@ -1290,6 +1343,212 @@ function AddCustomerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50">{saving ? 'Saving...' : 'Add Customer'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function NetCollectedBreakdownModal({ stats, onClose }: { stats: any; onClose: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [paymentBreakdown, setPaymentBreakdown] = useState<{ method: string; amount: number; count: number }[]>([]);
+  const [refundBreakdown, setRefundBreakdown] = useState<{ method: string; amount: number; count: number }[]>([]);
+  const [timeline, setTimeline] = useState<{ date: string; type: 'payment' | 'refund'; description: string; method: string; amount: number; runningNet: number }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('payment_method, amount, payment_date, notes, reference_id')
+        .eq('payment_type', 'received')
+        .eq('reference_type', 'invoice')
+        .order('payment_date', { ascending: true });
+
+      const { data: returns } = await supabase
+        .from('sales_returns')
+        .select('refund_method, total_refund_amount, created_at, return_number')
+        .order('created_at', { ascending: true });
+
+      const payMap = new Map<string, { amount: number; count: number }>();
+      (payments || []).forEach((p: any) => {
+        const method = p.payment_method || 'unknown';
+        const existing = payMap.get(method) || { amount: 0, count: 0 };
+        existing.amount += Number(p.amount);
+        existing.count += 1;
+        payMap.set(method, existing);
+      });
+      setPaymentBreakdown(Array.from(payMap.entries()).map(([method, v]) => ({ method, ...v })).sort((a, b) => b.amount - a.amount));
+
+      const refundMap = new Map<string, { amount: number; count: number }>();
+      (returns || []).forEach((r: any) => {
+        const method = r.refund_method || 'unknown';
+        const existing = refundMap.get(method) || { amount: 0, count: 0 };
+        existing.amount += Number(r.total_refund_amount);
+        existing.count += 1;
+        refundMap.set(method, existing);
+      });
+      setRefundBreakdown(Array.from(refundMap.entries()).map(([method, v]) => ({ method, ...v })).sort((a, b) => b.amount - a.amount));
+
+      const events: { date: string; type: 'payment' | 'refund'; description: string; method: string; amount: number }[] = [];
+      (payments || []).forEach((p: any) => {
+        events.push({ date: p.payment_date, type: 'payment', description: p.notes || 'Invoice payment', method: p.payment_method || 'unknown', amount: Number(p.amount) });
+      });
+      (returns || []).forEach((r: any) => {
+        events.push({ date: r.created_at.split('T')[0], type: 'refund', description: `Sales return ${r.return_number}`, method: r.refund_method || 'unknown', amount: -Number(r.total_refund_amount) });
+      });
+      events.sort((a, b) => a.date.localeCompare(b.date));
+
+      let running = 0;
+      setTimeline(events.map(e => { running += e.amount; return { ...e, runningNet: running }; }));
+      setLoading(false);
+    })();
+  }, []);
+
+  const methodLabel = (method: string) => {
+    const labels: Record<string, string> = {
+      store_credit: 'Store Credit', cash: 'Cash', bank_transfer: 'Bank Transfer',
+      bkash: 'bKash', nagad: 'Nagad', rocket: 'Rocket', sslcommerz: 'SSLCommerz',
+      cheque: 'Cheque', card: 'Card', other: 'Other',
+    };
+    return labels[method] || method;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="font-bold text-foreground text-lg">Net Collected Breakdown</h3>
+            <p className="text-sm text-muted-foreground">How Collected becomes Net Collected</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded"><X className="w-5 h-5" /></button>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-muted-foreground">Loading...</div>
+        ) : (
+          <div className="p-4 space-y-5">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-green-50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Collected (Gross)</p>
+                <p className="text-lg font-bold text-green-600">{formatCurrency(stats.paid)}</p>
+              </div>
+              <div className="p-3 bg-purple-50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Refunded</p>
+                <p className="text-lg font-bold text-purple-600">-{formatCurrency(stats.refunded)}</p>
+              </div>
+              <div className="p-3 bg-teal-50 rounded-lg border border-teal-100">
+                <p className="text-xs text-muted-foreground">Net Collected</p>
+                <p className="text-lg font-bold text-teal-600">{formatCurrency(stats.netCollected)}</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                <ArrowDownCircle className="w-4 h-4 text-green-500" />
+                Collected by Payment Method
+              </p>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/30 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Method</th>
+                      <th className="px-3 py-2 text-center font-medium">Count</th>
+                      <th className="px-3 py-2 text-right font-medium">Amount</th>
+                      <th className="px-3 py-2 text-right font-medium">% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paymentBreakdown.length === 0 ? (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-sm text-muted-foreground">No payments recorded</td></tr>
+                    ) : paymentBreakdown.map(p => (
+                      <tr key={p.method}>
+                        <td className="px-3 py-2 text-sm font-medium text-foreground">{methodLabel(p.method)}</td>
+                        <td className="px-3 py-2 text-sm text-center text-muted-foreground">{p.count}</td>
+                        <td className="px-3 py-2 text-sm text-right font-medium text-green-600">{formatCurrency(p.amount)}</td>
+                        <td className="px-3 py-2 text-sm text-right text-muted-foreground">{stats.paid > 0 ? ((p.amount / stats.paid) * 100).toFixed(1) : 0}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-muted/30">
+                    <tr>
+                      <td colSpan={2} className="px-3 py-2 text-sm font-bold">Total Collected</td>
+                      <td className="px-3 py-2 text-sm text-right font-bold text-green-600">{formatCurrency(stats.paid)}</td>
+                      <td className="px-3 py-2 text-sm text-right font-bold">100%</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                <ArrowUpCircle className="w-4 h-4 text-purple-500" />
+                Refunded by Method
+              </p>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/30 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Method</th>
+                      <th className="px-3 py-2 text-center font-medium">Count</th>
+                      <th className="px-3 py-2 text-right font-medium">Amount</th>
+                      <th className="px-3 py-2 text-right font-medium">% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {refundBreakdown.length === 0 ? (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-sm text-muted-foreground">No refunds recorded</td></tr>
+                    ) : refundBreakdown.map(r => (
+                      <tr key={r.method}>
+                        <td className="px-3 py-2 text-sm font-medium text-foreground">{methodLabel(r.method)}</td>
+                        <td className="px-3 py-2 text-sm text-center text-muted-foreground">{r.count}</td>
+                        <td className="px-3 py-2 text-sm text-right font-medium text-purple-600">-{formatCurrency(r.amount)}</td>
+                        <td className="px-3 py-2 text-sm text-right text-muted-foreground">{stats.refunded > 0 ? ((r.amount / stats.refunded) * 100).toFixed(1) : 0}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-muted/30">
+                    <tr>
+                      <td colSpan={2} className="px-3 py-2 text-sm font-bold">Total Refunded</td>
+                      <td className="px-3 py-2 text-sm text-right font-bold text-purple-600">-{formatCurrency(stats.refunded)}</td>
+                      <td className="px-3 py-2 text-sm text-right font-bold">100%</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-foreground mb-2">Balance Change History</p>
+              <p className="text-xs text-muted-foreground mb-3">Chronological log of every payment and refund that changed the net collected amount</p>
+              <div className="max-h-64 overflow-y-auto border border-border rounded-lg">
+                {timeline.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-muted-foreground">No transactions recorded</p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {timeline.map((e, i) => (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-muted/20">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${e.type === 'payment' ? 'bg-green-50 text-green-600' : 'bg-purple-50 text-purple-600'}`}>
+                          {e.type === 'payment' ? <ArrowDownCircle className="w-3.5 h-3.5" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground truncate">{e.description}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(e.date).toLocaleDateString()} - {methodLabel(e.method)}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-medium ${e.amount >= 0 ? 'text-green-600' : 'text-purple-600'}`}>
+                            {e.amount >= 0 ? '+' : ''}{formatCurrency(e.amount)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Net: {formatCurrency(e.runningNet)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

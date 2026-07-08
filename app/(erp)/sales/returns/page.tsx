@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ArrowLeft, Search, RefreshCw, Plus, X, Package, FileText, Receipt, CreditCard, CircleCheck as CheckCircle, Clock, Eye, ArrowRightLeft, Building2, Banknote, Wallet, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Search, RefreshCw, Plus, X, Package, FileText, Receipt, CreditCard, CircleCheck as CheckCircle, Clock, Eye, ArrowRightLeft, Building2, Banknote, Wallet, ExternalLink, CircleAlert as AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import type { Customer } from '@/lib/types';
 
@@ -19,6 +19,7 @@ interface Invoice {
   amount_paid: number;
   balance_due: number;
   customer?: { name: string; code: string };
+  existing_refunds?: number;
 }
 
 interface InvoiceItem {
@@ -29,6 +30,7 @@ interface InvoiceItem {
   quantity: number;
   unit_price: number;
   cost_price: number;
+  discount_percent: number;
   subtotal: number;
   remaining_qty?: number;
 }
@@ -56,6 +58,7 @@ interface SalesReturnItem {
   product?: { name: string; sku: string };
   quantity_returned: number;
   unit_price: number;
+  discount_percent: number;
   cost_price: number;
   subtotal: number;
   reason: string;
@@ -329,7 +332,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
     setSelectedInvoice(invoice);
     const { data } = await supabase
       .from('invoice_items')
-      .select('id, invoice_id, product_id, quantity, unit_price, cost_price, subtotal, product:products(name, sku, unit)')
+      .select('id, invoice_id, product_id, quantity, unit_price, cost_price, discount_percent, subtotal, product:products(name, sku, unit)')
       .eq('invoice_id', invoice.id);
 
     // Fetch previously returned quantities for each item
@@ -340,6 +343,14 @@ function ReturnModal({ invoices, onClose, onSaved }: {
           .select('invoice_item_id, quantity_returned')
           .in('invoice_item_id', itemIds)
       : { data: null };
+
+    // Fetch existing refunds for this invoice
+    const { data: existingReturns } = await supabase
+      .from('sales_returns')
+      .select('total_refund_amount')
+      .eq('invoice_id', invoice.id);
+    const existingRefunds = (existingReturns || []).reduce((s: number, r: any) => s + Number(r.total_refund_amount), 0);
+    setSelectedInvoice({ ...invoice, existing_refunds: existingRefunds });
 
     const returnedMap = new Map<string, number>();
     (returnedItems || []).forEach(ri => {
@@ -355,6 +366,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       quantity: item.quantity,
       unit_price: item.unit_price,
       cost_price: item.cost_price || 0,
+      discount_percent: item.discount_percent || 0,
       subtotal: item.subtotal,
       product: Array.isArray(item.product) ? item.product[0] : item.product,
       remaining_qty: item.quantity - (returnedMap.get(item.id) || 0)
@@ -372,8 +384,16 @@ function ReturnModal({ invoices, onClose, onSaved }: {
 
   const totalRefundAmount = Object.entries(returnItems).reduce((sum, [itemId, { qty }]) => {
     const item = items.find(i => i.id === itemId);
-    return sum + (item ? qty * item.unit_price : 0);
+    if (!item) return sum;
+    const discountMultiplier = 1 - (item.discount_percent || 0) / 100;
+    return sum + qty * item.unit_price * discountMultiplier;
   }, 0);
+
+  const existingRefunds = selectedInvoice?.existing_refunds || 0;
+  const maxRefundable = Math.max(0, (selectedInvoice?.amount_paid || 0) - existingRefunds);
+  const refundExceedsPaid = totalRefundAmount > maxRefundable;
+  const isOnCredit = (selectedInvoice?.amount_paid || 0) === 0;
+  const cappedRefundAmount = Math.min(totalRefundAmount, maxRefundable);
 
   const totalCOGS = Object.entries(returnItems).reduce((sum, [itemId, { qty }]) => {
     const item = items.find(i => i.id === itemId);
@@ -460,6 +480,19 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         return;
       }
 
+      // Validate refund amount against paid amount
+      if (totalRefundAmount > maxRefundable) {
+        setError(`Refund amount (${formatCurrency(totalRefundAmount)}) exceeds the customer's paid amount (${formatCurrency(maxRefundable)}). ${isOnCredit ? 'This is an on-credit sale with no payment received yet.' : 'Previous refunds have already been processed.'}`);
+        setSaving(false);
+        return;
+      }
+
+      if (totalRefundAmount === 0) {
+        setError('Please select at least one item to return.');
+        setSaving(false);
+        return;
+      }
+
       // Determine credit account based on refund method
       let creditAccountId: string;
       if (isStoreCredit) {
@@ -478,7 +511,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       journalLines.push({
         account_id: salesReturnsAccountId,
         description: `Sales Return - ${returnNumber}`,
-        debit: totalRefundAmount,
+        debit: cappedRefundAmount,
         credit: 0,
         sort_order: 1
       });
@@ -488,7 +521,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         account_id: creditAccountId,
         description: isStoreCredit ? 'Customer Store Credit' : `Refund via ${selectedMethod?.name || 'Payment'}`,
         debit: 0,
-        credit: totalRefundAmount,
+        credit: cappedRefundAmount,
         sort_order: 2
       });
 
@@ -518,8 +551,8 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         entry_date: new Date().toISOString().split('T')[0],
         description: `Sales Return ${returnNumber} - Invoice ${selectedInvoice.invoice_number}`,
         reference_type: 'sales_return',
-        total_debit: totalRefundAmount + totalCOGS,
-        total_credit: totalRefundAmount + totalCOGS,
+        total_debit: cappedRefundAmount + totalCOGS,
+        total_credit: cappedRefundAmount + totalCOGS,
         is_posted: true
       };
       if (createdBy) {
@@ -587,7 +620,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
             reference_type: 'sales_return',
             reference_id: journalEntry.id,
             customer_id: selectedInvoice.customer_id,
-            amount: totalRefundAmount,
+            amount: cappedRefundAmount,
             payment_method: selectedMethod?.code || 'cash',
             payment_date: new Date().toISOString().split('T')[0],
             notes: `Refund for sales return ${returnNumber}`
@@ -606,7 +639,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         invoice_id: selectedInvoice.id,
         customer_id: selectedInvoice.customer_id,
         return_date: new Date().toISOString().split('T')[0],
-        total_refund_amount: totalRefundAmount,
+        total_refund_amount: cappedRefundAmount,
         refund_method: selectedMethod?.code || 'store_credit',
         status: 'completed',
         journal_entry_id: journalEntry.id,
@@ -629,14 +662,16 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         const item = items.find(i => i.id === itemId);
         if (!item) continue;
 
+        const discountMultiplier = 1 - (item.discount_percent || 0) / 100;
         await supabase.from('sales_return_items').insert({
           sales_return_id: salesReturn.id,
           invoice_item_id: itemId,
           product_id: item.product_id,
           quantity_returned: qty,
           unit_price: item.unit_price,
+          discount_percent: item.discount_percent || 0,
           cost_price: item.cost_price || 0,
-          subtotal: qty * item.unit_price,
+          subtotal: qty * item.unit_price * discountMultiplier,
           reason: reason || 'Not specified'
         });
 
@@ -678,9 +713,9 @@ function ReturnModal({ invoices, onClose, onSaved }: {
       }
 
       // Update invoice amount_paid
-      const newAmountPaid = Math.max(0, selectedInvoice.amount_paid - totalRefundAmount);
+      const newAmountPaid = Math.max(0, selectedInvoice.amount_paid - cappedRefundAmount);
       const newBalanceDue = selectedInvoice.total_amount - newAmountPaid;
-      const isFullyRefunded = totalRefundAmount >= selectedInvoice.total_amount;
+      const isFullyRefunded = cappedRefundAmount >= selectedInvoice.total_amount;
       const newStatus = isFullyRefunded ? 'refunded' :
                         newBalanceDue <= 0 ? 'paid' :
                         newAmountPaid > 0 ? 'partially_paid' : 'sent';
@@ -692,29 +727,25 @@ function ReturnModal({ invoices, onClose, onSaved }: {
         updated_at: new Date().toISOString(),
       }).eq('id', selectedInvoice.id);
 
-      // Update customer outstanding balance for store credit
-      if (isStoreCredit && selectedInvoice.customer_id) {
-        const { data: currentCustomer } = await supabase
-          .from('customers')
-          .select('outstanding_balance')
-          .eq('id', selectedInvoice.customer_id)
-          .maybeSingle();
+      // Create store credit record if refund method is store credit
+      if (isStoreCredit && selectedInvoice.customer_id && salesReturn) {
+        const { data: creditNumberData } = await supabase.rpc('generate_credit_number');
+        const creditNumber = creditNumberData || `SC-${Date.now().toString().slice(-6)}`;
 
-        if (currentCustomer) {
-          // Store credit increases what the customer is owed (negative balance or credit)
-          await supabase
-            .from('customers')
-            .update({
-              outstanding_balance: (currentCustomer.outstanding_balance || 0) - totalRefundAmount,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', selectedInvoice.customer_id);
-        }
+        await supabase.from('customer_store_credits').insert({
+          customer_id: selectedInvoice.customer_id,
+          sales_return_id: salesReturn.id,
+          credit_number: creditNumber,
+          amount: cappedRefundAmount,
+          balance: cappedRefundAmount,
+          status: 'active',
+          notes: `Store credit from return ${returnNumber} (Invoice ${selectedInvoice.invoice_number})`,
+        });
       }
 
       toast({
         title: 'Return Processed Successfully',
-        description: `Return ${returnNumber} created. Refund: ${formatCurrency(totalRefundAmount)}`
+        description: `Return ${returnNumber} created. Refund: ${formatCurrency(cappedRefundAmount)}`
       });
 
       // Show success state briefly before closing
@@ -805,6 +836,9 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                         </div>
                         <div className="text-right">
                           <p className="font-semibold">{formatCurrency(item.unit_price)}/unit</p>
+                          {item.discount_percent > 0 && (
+                            <p className="text-xs text-blue-600">Discount: {item.discount_percent}%</p>
+                          )}
                           {item.cost_price > 0 && (
                             <p className="text-xs text-muted-foreground">Cost: {formatCurrency(item.cost_price)}</p>
                           )}
@@ -889,6 +923,24 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                     <span className="text-muted-foreground">Total Refund Amount:</span>
                     <span className="font-bold">{formatCurrency(totalRefundAmount)}</span>
                   </div>
+                  {refundExceedsPaid && (
+                    <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                      <div className="text-xs text-red-700">
+                        {isOnCredit ? (
+                          <p>This is an on-credit sale. The customer has not paid yet, so no refund can be issued until payment is received.</p>
+                        ) : (
+                          <p>Refund exceeds the customer's paid amount ({formatCurrency(maxRefundable)}). The refund will be capped at {formatCurrency(cappedRefundAmount)}.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!refundExceedsPaid && existingRefunds > 0 && (
+                    <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">Previous refunds for this invoice: {formatCurrency(existingRefunds)}. Remaining refundable: {formatCurrency(maxRefundable)}.</p>
+                    </div>
+                  )}
                   {totalCOGS > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">COGS Reversal:</span>
@@ -908,7 +960,7 @@ function ReturnModal({ invoices, onClose, onSaved }: {
                 </button>
                 <button
                   onClick={handleReturn}
-                  disabled={saving || totalRefundAmount === 0}
+                  disabled={saving || totalRefundAmount === 0 || isOnCredit || refundExceedsPaid}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60"
                 >
                   {saving ? (
@@ -998,6 +1050,9 @@ function ViewReturnModal({ returnData, onClose }: {
                       <div className="text-right">
                         <p className="text-sm font-medium">{formatCurrency(item.subtotal)}</p>
                         <p className="text-xs text-muted-foreground">Qty: {item.quantity_returned}</p>
+                        {item.discount_percent > 0 && (
+                          <p className="text-xs text-blue-600">Discount: {item.discount_percent}%</p>
+                        )}
                       </div>
                     </div>
                     {item.reason && (

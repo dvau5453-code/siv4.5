@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 import JsBarcode from 'jsbarcode';
 import { Package, Plus, Search, CreditCard as Edit, Trash2, TriangleAlert as AlertTriangle, ChartBar as BarChart3, Boxes, TrendingDown, RefreshCw, X, Warehouse, Palette, Ruler, ChevronDown, ChevronUp, ChevronRight, Info, Settings, Barcode, Camera, Printer, Download, Upload, CircleCheck as CheckCircle2 } from 'lucide-react';
 import type { Product, Category, Brand, Warehouse as WarehouseType, ProductColor, ProductSize, ProductUnit } from '@/lib/types';
@@ -37,6 +38,7 @@ interface ProductWithStock extends Omit<Product, 'category' | 'brand'> {
 }
 
 export default function InventoryPage() {
+  const router = useRouter();
   const [products, setProducts] = useState<ProductWithStock[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -383,7 +385,7 @@ export default function InventoryPage() {
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-foreground">{p.name}</p>
+                          <p className="text-sm font-semibold text-foreground hover:text-blue-600 hover:underline cursor-pointer" onClick={() => router.push(`/inventory/${p.id}`)}>{p.name}</p>
                           <p className="text-xs text-muted-foreground">{p.enable_multi_unit ? <span className="text-blue-600">Multi-unit</span> : p.unit}</p>
                         </div>
                       </div>

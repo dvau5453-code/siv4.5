@@ -19,7 +19,6 @@ const movementTypes = Object.keys(typeConfig);
 
 type FilterState = {
   search: string;
-  productId: string;
   movementType: string;
   warehouseId: string;
   dateFrom: string;
@@ -28,7 +27,6 @@ type FilterState = {
 
 const initialFilters: FilterState = {
   search: '',
-  productId: 'all',
   movementType: 'all',
   warehouseId: 'all',
   dateFrom: '',
@@ -39,7 +37,6 @@ const PAGE_SIZE = 25;
 
 export default function StockMovementsPage() {
   const [allMovements, setAllMovements] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<FilterState>(initialFilters);
@@ -48,13 +45,11 @@ export default function StockMovementsPage() {
 
   useEffect(() => {
     async function load() {
-      const [movRes, prodRes, whRes] = await Promise.all([
+      const [movRes, whRes] = await Promise.all([
         supabase.from('stock_movements').select('*, product:products(name, sku), warehouse:warehouses(name)').order('created_at', { ascending: false }).limit(500),
-        supabase.from('products').select('id, name, sku').order('name'),
         supabase.from('warehouses').select('id, name').order('name'),
       ]);
       setAllMovements(movRes.data || []);
-      setProducts(prodRes.data || []);
       setWarehouses(whRes.data || []);
       setLoading(false);
     }
@@ -71,7 +66,6 @@ export default function StockMovementsPage() {
         const notes = (m.notes || '').toLowerCase();
         if (!productName.includes(q) && !sku.includes(q) && !refNum.includes(q) && !notes.includes(q)) return false;
       }
-      if (filters.productId !== 'all' && m.product_id !== filters.productId) return false;
       if (filters.movementType !== 'all' && m.movement_type !== filters.movementType) return false;
       if (filters.warehouseId !== 'all' && m.warehouse_id !== filters.warehouseId) return false;
       if (filters.dateFrom) {
@@ -96,7 +90,6 @@ export default function StockMovementsPage() {
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.search) count++;
-    if (filters.productId !== 'all') count++;
     if (filters.movementType !== 'all') count++;
     if (filters.warehouseId !== 'all') count++;
     if (filters.dateFrom) count++;
@@ -231,21 +224,6 @@ export default function StockMovementsPage() {
                   className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                 />
               </div>
-            </div>
-
-            {/* Product */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Product</label>
-              <select
-                value={filters.productId}
-                onChange={(e) => handleFilterChange('productId', e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-              >
-                <option value="all">All Products</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ''}</option>
-                ))}
-              </select>
             </div>
 
             {/* Movement Type */}
