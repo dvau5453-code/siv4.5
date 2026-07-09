@@ -305,12 +305,12 @@ export default function DashboardPage() {
           <div className="space-y-2.5">
             {(topCustomers.length > 0 ? topCustomers : []).slice(0, 5).map((c) => (
               <div key={c.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <Link href={`/crm/${c.id}`} className="flex items-center gap-2 hover:opacity-80 transition">
                   <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
                     {c.name[0]}
                   </div>
                   <span className="text-sm text-foreground truncate max-w-[110px]">{c.name}</span>
-                </div>
+                </Link>
                 <span className="text-sm font-semibold text-foreground">{formatCurrency(c.total_purchases)}</span>
               </div>
             ))}
@@ -325,7 +325,7 @@ export default function DashboardPage() {
           <div className="space-y-2.5">
             {(outstandingDues.length > 0 ? outstandingDues : []).slice(0, 5).map((c) => (
               <div key={c.id} className="flex items-center justify-between">
-                <span className="text-sm text-foreground truncate max-w-[130px]">{c.name}</span>
+                <Link href={`/crm/${c.id}`} className="text-sm text-foreground truncate max-w-[130px] hover:text-blue-600 transition">{c.name}</Link>
                 <span className="text-sm font-semibold text-red-600">{formatCurrency(c.outstanding_balance)}</span>
               </div>
             ))}

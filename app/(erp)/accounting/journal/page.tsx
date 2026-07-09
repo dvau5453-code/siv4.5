@@ -4,11 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import {
-  Plus, ChevronDown, ChevronRight, FileText, Receipt, CreditCard,
-  Package, ArrowRightLeft, ShoppingBag, X, Trash2, Lightbulb,
-  Banknote, Building2, Zap, Truck, Users, RotateCcw,
-} from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FileText, Receipt, CreditCard, Package, ArrowRightLeft, ShoppingBag, X, Trash2, Lightbulb, Banknote, Building2, Zap, Truck, Users, RotateCcw, Search, Filter, CreditCard as Edit2, TriangleAlert as AlertTriangle, Info, User } from 'lucide-react';
 import type { Account } from '@/lib/types';
 
 interface JournalLine {
@@ -31,6 +27,10 @@ interface JournalEntry {
   total_credit: number;
   is_posted: boolean;
   created_at: string;
+  customer_id?: string | null;
+  supplier_id?: string | null;
+  customer?: { name: string } | { name: string }[] | null;
+  supplier?: { name: string } | { name: string }[] | null;
   lines?: JournalLine[];
 }
 
@@ -42,6 +42,7 @@ const refIcons: Record<string, React.ElementType> = {
   purchase_return: ShoppingBag,
   manual: FileText,
   opening_balance: Building2,
+  receivable: User,
 };
 
 const refLabels: Record<string, string> = {
@@ -52,6 +53,7 @@ const refLabels: Record<string, string> = {
   purchase_return: 'Purchase Return',
   manual: 'Manual Entry',
   opening_balance: 'Opening Balance',
+  receivable: 'Receivable',
 };
 
 const refColors: Record<string, string> = {
@@ -62,6 +64,7 @@ const refColors: Record<string, string> = {
   purchase_return: 'bg-amber-50 text-amber-600',
   manual: 'bg-gray-50 text-gray-600',
   opening_balance: 'bg-purple-50 text-purple-600',
+  receivable: 'bg-indigo-50 text-indigo-600',
 };
 
 // Plain-English templates for non-accountants
@@ -181,13 +184,26 @@ export default function JournalPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filterType, setFilterType] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<JournalEntry | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     setLoading(true);
     const [entriesRes, accountsRes] = await Promise.all([
-      supabase.from('journal_entries').select('*').order('entry_date', { ascending: false }).order('created_at', { ascending: false }).limit(150),
+      supabase.from('journal_entries')
+        .select(`
+          id, entry_number, entry_date, description, reference_type, reference_id,
+          total_debit, total_credit, is_posted, created_at, customer_id, supplier_id,
+          customer:customers(name), supplier:suppliers(name)
+        `)
+        .order('entry_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(200),
       supabase.from('accounts').select('*').eq('is_active', true).order('code'),
     ]);
     setEntries(entriesRes.data || []);
@@ -209,7 +225,21 @@ export default function JournalPage() {
     setExpandedId(id);
   }
 
-  const filtered = filterType ? entries.filter(e => e.reference_type === filterType) : entries;
+  // Filter entries
+  const filtered = entries.filter(e => {
+    if (filterType && e.reference_type !== filterType) return false;
+    if (dateFrom && e.entry_date < dateFrom) return false;
+    if (dateTo && e.entry_date > dateTo) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchDesc = e.description?.toLowerCase().includes(q);
+      const matchNum = e.entry_number?.toLowerCase().includes(q);
+      const matchRef = e.reference_type?.toLowerCase().includes(q);
+      if (!matchDesc && !matchNum && !matchRef) return false;
+    }
+    return true;
+  });
+
   const autoCount = entries.filter(e => e.reference_type !== 'manual').length;
   const manualCount = entries.filter(e => e.reference_type === 'manual').length;
 
@@ -260,24 +290,61 @@ export default function JournalPage() {
       </div>
 
       {/* Filter bar */}
-      <div className="bg-white rounded-xl border border-border p-3 shadow-sm flex flex-wrap gap-2">
-        {[
-          { value: '', label: 'All Entries' },
-          { value: 'invoice', label: 'Invoices' },
-          { value: 'payment', label: 'Payments' },
-          { value: 'grn', label: 'Goods Receipt' },
-          { value: 'manual', label: 'Manual' },
-          { value: 'opening_balance', label: 'Opening' },
-        ].map(f => (
-          <button
-            key={f.value}
-            onClick={() => setFilterType(f.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${filterType === f.value ? 'bg-blue-600 text-white' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
-          >
-            {f.label}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted-foreground self-center">{filtered.length} entries</span>
+      <div className="bg-white rounded-xl border border-border p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by entry #, description, invoice #..."
+              className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="border border-border rounded-lg px-2 py-1.5 text-sm"
+              placeholder="From"
+            />
+            <span className="text-muted-foreground text-sm">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="border border-border rounded-lg px-2 py-1.5 text-sm"
+              placeholder="To"
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { value: '', label: 'All Entries' },
+            { value: 'invoice', label: 'Invoices' },
+            { value: 'payment', label: 'Payments' },
+            { value: 'grn', label: 'Goods Receipt' },
+            { value: 'manual', label: 'Manual' },
+            { value: 'opening_balance', label: 'Opening' },
+          ].map(f => (
+            <button
+              key={f.value}
+              onClick={() => setFilterType(f.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${filterType === f.value ? 'bg-blue-600 text-white' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+          <span className="ml-auto text-xs text-muted-foreground self-center">{filtered.length} entries</span>
+        </div>
       </div>
 
       <div className="table-wrapper">
@@ -291,23 +358,24 @@ export default function JournalPage() {
               <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Type</th>
               <th className="text-right text-xs font-semibold text-muted-foreground px-4 py-3">Amount</th>
               <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Status</th>
+              <th className="text-center text-xs font-semibold text-muted-foreground px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i}>
-                  {Array.from({ length: 7 }).map((_, j) => (
+                  {Array.from({ length: 8 }).map((_, j) => (
                     <td key={j} className="px-4 py-3"><div className="h-4 bg-muted rounded animate-pulse" /></td>
                   ))}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
                   <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
-                  <p className="font-medium">No entries yet</p>
-                  <p className="text-xs mt-1">Confirm an invoice or record a payment to see automatic entries here</p>
+                  <p className="font-medium">No entries found</p>
+                  <p className="text-xs mt-1">Try adjusting your filters or search query</p>
                 </td>
               </tr>
             ) : (
@@ -315,8 +383,11 @@ export default function JournalPage() {
                 <JournalEntryRow
                   key={entry.id}
                   entry={entry}
+                  accounts={accounts}
                   isExpanded={expandedId === entry.id}
                   onToggle={() => toggleExpand(entry.id)}
+                  onEdit={() => setEditingEntry(entry)}
+                  onDelete={() => setShowDeleteConfirm(entry)}
                 />
               ))
             )}
@@ -331,15 +402,41 @@ export default function JournalPage() {
           onSaved={() => { loadData(); setShowModal(false); }}
         />
       )}
+
+      {editingEntry && (
+        <EditJournalEntryModal
+          entry={editingEntry}
+          accounts={accounts}
+          onClose={() => setEditingEntry(null)}
+          onSaved={() => { loadData(); setEditingEntry(null); }}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <DeleteJournalEntryModal
+          entry={showDeleteConfirm}
+          accounts={accounts}
+          onClose={() => setShowDeleteConfirm(null)}
+          onDeleted={() => { loadData(); setShowDeleteConfirm(null); }}
+        />
+      )}
     </div>
   );
 }
 
-function JournalEntryRow({ entry, isExpanded, onToggle }: { entry: JournalEntry; isExpanded: boolean; onToggle: () => void }) {
+function JournalEntryRow({ entry, accounts, isExpanded, onToggle, onEdit, onDelete }: {
+  entry: JournalEntry;
+  accounts: Account[];
+  isExpanded: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const [lines, setLines] = useState<JournalLine[] | null>(null);
   const refType = entry.reference_type || 'manual';
   const Icon = refIcons[refType] || FileText;
   const colorClass = refColors[refType] || 'bg-gray-50 text-gray-600';
+  const isAuto = entry.reference_type !== 'manual' && entry.reference_type !== null;
 
   useEffect(() => {
     if (isExpanded && !lines && entry.lines) setLines(entry.lines);
@@ -355,9 +452,11 @@ function JournalEntryRow({ entry, isExpanded, onToggle }: { entry: JournalEntry;
 
   return (
     <>
-      <tr className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={onToggle}>
+      <tr className="hover:bg-muted/30 transition-colors">
         <td className="px-2 py-3">
-          {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+          <button onClick={onToggle} className="cursor-pointer">
+            {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+          </button>
         </td>
         <td className="px-4 py-3 text-sm font-mono font-semibold text-blue-600">{entry.entry_number}</td>
         <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{formatDate(entry.entry_date)}</td>
@@ -374,10 +473,27 @@ function JournalEntryRow({ entry, isExpanded, onToggle }: { entry: JournalEntry;
             {entry.is_posted ? 'Posted' : 'Draft'}
           </span>
         </td>
+        <td className="px-4 py-3 text-center">
+          <div className="flex items-center justify-center gap-1">
+            {!isAuto && (
+              <>
+                <button onClick={onEdit} className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title="Edit entry">
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition" title="Delete entry">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+            {isAuto && (
+              <span className="text-[10px] text-muted-foreground italic">Auto</span>
+            )}
+          </div>
+        </td>
       </tr>
       {isExpanded && (
         <tr className="bg-slate-50/80">
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={8} className="px-4 py-3">
             <div className="ml-6">
               {!lines ? (
                 <div className="text-xs text-muted-foreground py-2">Loading lines...</div>
@@ -786,6 +902,388 @@ function JournalEntryModal({ accounts, onClose, onSaved }: { accounts: Account[]
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Edit Journal Entry Modal
+function EditJournalEntryModal({ entry, accounts, onClose, onSaved }: {
+  entry: JournalEntry;
+  accounts: Account[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [entryDate, setEntryDate] = useState(entry.entry_date);
+  const [description, setDescription] = useState(entry.description);
+  const [lines, setLines] = useState<{ id?: string; accountId: string; debit: string; credit: string; description: string }[]>([]);
+  const [originalLines, setOriginalLines] = useState<{ accountId: string; debit: number; credit: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function loadLines() {
+      const { data: jl } = await supabase
+        .from('journal_lines')
+        .select('id, account_id, description, debit, credit')
+        .eq('journal_entry_id', entry.id)
+        .order('sort_order');
+
+      const loadedLines = (jl || []).map(l => ({
+        id: l.id,
+        accountId: l.account_id,
+        debit: String(l.debit),
+        credit: String(l.credit),
+        description: l.description || '',
+      }));
+      setLines(loadedLines);
+      setOriginalLines((jl || []).map(l => ({ accountId: l.account_id, debit: Number(l.debit), credit: Number(l.credit) })));
+      setLoading(false);
+    }
+    loadLines();
+  }, [entry.id]);
+
+  const totalDebit = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+
+  function addLine() {
+    setLines([...lines, { accountId: '', debit: '', credit: '', description: '' }]);
+  }
+
+  function removeLine(i: number) {
+    if (lines.length > 2) setLines(lines.filter((_, j) => j !== i));
+  }
+
+  function updateLine(i: number, field: string, value: string) {
+    const updated = [...lines];
+    (updated[i] as any)[field] = value;
+    setLines(updated);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    const validLines = lines.filter(l => l.accountId && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
+    if (validLines.length < 2) { setError('At least two line items are required'); return; }
+    if (!isBalanced) { setError('Debits and credits must balance'); return; }
+    if (totalDebit === 0) { setError('Entry must have a non-zero amount'); return; }
+    if (!description.trim()) { setError('Description is required'); return; }
+
+    setSaving(true);
+    try {
+      // Reverse original balances
+      for (const ol of originalLines) {
+        const acc = accounts.find(a => a.id === ol.accountId);
+        if (acc) {
+          const reverseChange = (acc.account_type === 'asset' || acc.account_type === 'expense')
+            ? -(ol.debit - ol.credit)
+            : -(ol.credit - ol.debit);
+          await supabase.from('accounts').update({ balance: (acc.balance || 0) + reverseChange }).eq('id', ol.accountId);
+        }
+      }
+
+      // Delete old journal lines
+      await supabase.from('journal_lines').delete().eq('journal_entry_id', entry.id);
+
+      // Update entry
+      await supabase.from('journal_entries')
+        .update({
+          entry_date: entryDate,
+          description,
+          total_debit: totalDebit,
+          total_credit: totalCredit,
+        })
+        .eq('id', entry.id);
+
+      // Insert new lines and update balances
+      for (let i = 0; i < validLines.length; i++) {
+        const line = validLines[i];
+        await supabase.from('journal_lines').insert({
+          journal_entry_id: entry.id,
+          account_id: line.accountId,
+          description: line.description,
+          debit: parseFloat(line.debit) || 0,
+          credit: parseFloat(line.credit) || 0,
+          sort_order: i,
+        });
+
+        const acc = accounts.find(a => a.id === line.accountId);
+        if (acc) {
+          // Get fresh balance
+          const { data: freshAcc } = await supabase.from('accounts').select('balance').eq('id', line.accountId).single();
+          const change = (acc.account_type === 'asset' || acc.account_type === 'expense')
+            ? (parseFloat(line.debit) || 0) - (parseFloat(line.credit) || 0)
+            : (parseFloat(line.credit) || 0) - (parseFloat(line.debit) || 0);
+          await supabase.from('accounts').update({ balance: (freshAcc?.balance || 0) + change }).eq('id', line.accountId);
+        }
+      }
+
+      toast({ title: 'Success', description: `Entry ${entry.entry_number} updated` });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update entry');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-white z-10">
+          <div>
+            <h2 className="text-base font-bold">Edit Journal Entry</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{entry.entry_number}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+
+          {/* Warning */}
+          <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg flex gap-2 text-xs text-amber-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <div>
+              <p className="font-medium">Editing this entry will recalculate affected account balances.</p>
+              <p className="mt-1">Original amounts will be reversed and new amounts applied.</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Entry Date</label>
+                  <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Description *</label>
+                  <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Monthly rent payment" className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium">Line Items</label>
+                  <button type="button" onClick={addLine} className="text-xs text-blue-600 hover:underline">+ Add Line</button>
+                </div>
+                <div className="border border-border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Account</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground w-24">Debit (৳)</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground w-24">Credit (৳)</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Note</th>
+                        <th className="w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {lines.map((line, i) => (
+                        <tr key={i}>
+                          <td className="px-2 py-1.5">
+                            <select
+                              value={line.accountId}
+                              onChange={e => updateLine(i, 'accountId', e.target.value)}
+                              className="w-full border border-border rounded px-2 py-1 text-xs focus:outline-none"
+                            >
+                              <option value="">Select account</option>
+                              {accounts.map(a => (
+                                <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="number" min="0" step="0.01" placeholder="0.00" value={line.debit} onChange={e => updateLine(i, 'debit', e.target.value)} className="w-full border border-border rounded px-2 py-1 text-xs text-right focus:outline-none" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="number" min="0" step="0.01" placeholder="0.00" value={line.credit} onChange={e => updateLine(i, 'credit', e.target.value)} className="w-full border border-border rounded px-2 py-1 text-xs text-right focus:outline-none" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input placeholder="Optional" value={line.description} onChange={e => updateLine(i, 'description', e.target.value)} className="w-full border border-border rounded px-2 py-1 text-xs focus:outline-none" />
+                          </td>
+                          <td className="px-1 py-1.5">
+                            {lines.length > 2 && (
+                              <button type="button" onClick={() => removeLine(i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className={`flex items-center justify-between p-3 rounded-lg text-xs ${isBalanced && totalDebit > 0 ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                <div>
+                  <span className="text-muted-foreground">Debit: </span>
+                  <span className="font-semibold text-green-700">{formatCurrency(totalDebit)}</span>
+                  <span className="mx-3 text-muted-foreground">Credit: </span>
+                  <span className="font-semibold text-red-600">{formatCurrency(totalCredit)}</span>
+                </div>
+                <span className={`font-semibold ${isBalanced && totalDebit > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {isBalanced && totalDebit > 0 ? 'Balanced' : 'Not balanced'}
+                </span>
+              </div>
+            </>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
+            <button type="button" onClick={onClose} className="px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
+            <button
+              type="submit"
+              disabled={saving || loading || !isBalanced || totalDebit === 0}
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Delete Journal Entry Modal
+function DeleteJournalEntryModal({ entry, accounts, onClose, onDeleted }: {
+  entry: JournalEntry;
+  accounts: Account[];
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [impact, setImpact] = useState<{ account: string; change: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadImpact() {
+      const { data: lines } = await supabase
+        .from('journal_lines')
+        .select('account_id, debit, credit, account:accounts(code, name, account_type)')
+        .eq('journal_entry_id', entry.id);
+
+      const impacts: { account: string; change: number }[] = [];
+      for (const l of lines || []) {
+        const acc = Array.isArray(l.account) ? l.account[0] : l.account;
+        if (acc) {
+          const isAssetOrExpense = acc.account_type === 'asset' || acc.account_type === 'expense';
+          const currentEffect = isAssetOrExpense ? (Number(l.debit) - Number(l.credit)) : (Number(l.credit) - Number(l.debit));
+          const reverseEffect = -currentEffect;
+          impacts.push({
+            account: `${acc.code} – ${acc.name}`,
+            change: reverseEffect,
+          });
+        }
+      }
+      setImpact(impacts);
+      setLoading(false);
+    }
+    loadImpact();
+  }, [entry.id]);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      // Reverse account balances
+      for (const imp of impact) {
+        const acc = accounts.find(a => `${a.code} – ${a.name}` === imp.account);
+        if (acc) {
+          await supabase.from('accounts').update({ balance: (acc.balance || 0) + imp.change }).eq('id', acc.id);
+        }
+      }
+
+      // Delete journal lines
+      await supabase.from('journal_lines').delete().eq('journal_entry_id', entry.id);
+
+      // Delete journal entry
+      await supabase.from('journal_entries').delete().eq('id', entry.id);
+
+      toast({ title: 'Success', description: `Entry ${entry.entry_number} deleted` });
+      onDeleted();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Failed to delete', variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-bold text-red-600">Delete Journal Entry</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{entry.entry_number}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Warning */}
+          <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="text-sm text-red-700">
+              <p className="font-medium">This action cannot be undone.</p>
+              <p className="mt-1 text-xs text-red-600">Deleting this entry will reverse all account balance changes it caused.</p>
+            </div>
+          </div>
+
+          {/* Impact preview */}
+          <div className="bg-muted/40 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Info className="w-4 h-4 text-muted-foreground" />
+              <p className="text-xs font-semibold text-muted-foreground">Account Balance Changes</p>
+            </div>
+
+            {loading ? (
+              <div className="text-xs text-muted-foreground">Calculating impact...</div>
+            ) : impact.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No lines found</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/50">
+                    <th className="text-left py-1.5 font-medium">Account</th>
+                    <th className="text-right py-1.5 font-medium w-28">Balance Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {impact.map((imp, i) => (
+                    <tr key={i} className="border-b border-border/30 last:border-0">
+                      <td className="py-1.5 font-medium text-foreground">{imp.account}</td>
+                      <td className={`py-1.5 text-right font-semibold ${imp.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {imp.change >= 0 ? '+' : ''}{formatCurrency(Math.abs(imp.change))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="text-sm text-muted-foreground">
+            <p><strong>Entry:</strong> {entry.entry_number}</p>
+            <p><strong>Description:</strong> {entry.description}</p>
+            <p><strong>Amount:</strong> {formatCurrency(entry.total_debit)}</p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
+            <button onClick={onClose} disabled={deleting} className="px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition disabled:opacity-50">Cancel</button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting || loading}
+              className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
+            >
+              {deleting ? 'Deleting...' : 'Delete Entry'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

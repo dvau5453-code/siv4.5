@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ArrowLeft, Phone, Mail, MapPin, Building, CreditCard, Calendar, ShoppingBag, DollarSign, Star, Pencil as Edit, Eye, Receipt, Truck, FileText, User, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, Building, CreditCard, Calendar, ShoppingBag, DollarSign, Star, Pencil as Edit, Eye, Receipt, Truck, FileText, User, RotateCcw, Filter, Search, X } from 'lucide-react';
 import type { Customer, Invoice, Quotation, Delivery } from '@/lib/types';
 
 interface SalesReturn {
@@ -30,7 +30,21 @@ interface ManualReceivable {
   created_at: string;
   paid_amount: number;
   outstanding_balance: number;
+  type: 'manual';
 }
+
+interface InvoiceReceivable {
+  id: string;
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
+  amount_paid: number;
+  balance_due: number;
+  status: string;
+  type: 'invoice';
+}
+
+type ReceivableItem = (ManualReceivable | InvoiceReceivable) & { tag: 'manual' | 'invoice' };
 
 interface CustomerStats {
   totalInvoices: number;
@@ -63,6 +77,11 @@ export default function CustomerDetailPage() {
   const [manualReceivables, setManualReceivables] = useState<ManualReceivable[]>([]);
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
   const [activeTab, setActiveTab] = useState<'invoices' | 'quotations' | 'deliveries' | 'receivables' | 'returns'>('invoices');
+
+  // Receivables filter state
+  const [receivablesFilter, setReceivablesFilter] = useState<'all' | 'invoice' | 'manual'>('all');
+  const [receivablesDateFrom, setReceivablesDateFrom] = useState('');
+  const [receivablesDateTo, setReceivablesDateTo] = useState('');
 
   useEffect(() => { loadCustomerData(); }, [customerId]);
 
@@ -110,6 +129,7 @@ export default function CustomerDetailPage() {
         ...r,
         paid_amount: paidAmount,
         outstanding_balance: Number(r.total_debit) - paidAmount,
+        type: 'manual',
       };
     });
 
@@ -141,6 +161,55 @@ export default function CustomerDetailPage() {
     setLoading(false);
   }
 
+  // Combine and filter receivables
+  const getFilteredReceivables = (): ReceivableItem[] => {
+    const invoiceReceivables: InvoiceReceivable[] = invoices
+      .filter(inv => Number(inv.balance_due) > 0 && inv.status !== 'cancelled')
+      .map(inv => ({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        invoice_date: inv.invoice_date,
+        total_amount: Number(inv.total_amount),
+        amount_paid: Number(inv.amount_paid),
+        balance_due: Number(inv.balance_due),
+        status: inv.status,
+        type: 'invoice' as const,
+      }));
+
+    const manualItems: ReceivableItem[] = manualReceivables.map(r => ({ ...r, tag: 'manual' as const }));
+    const invoiceItems: ReceivableItem[] = invoiceReceivables.map(r => ({ ...r, tag: 'invoice' as const }));
+
+    let all: ReceivableItem[] = [];
+    if (receivablesFilter === 'all') {
+      all = [...manualItems, ...invoiceItems];
+    } else if (receivablesFilter === 'manual') {
+      all = manualItems;
+    } else {
+      all = invoiceItems;
+    }
+
+    // Date filtering
+    if (receivablesDateFrom) {
+      all = all.filter(item => {
+        const date = 'invoice_date' in item ? item.invoice_date : item.entry_date;
+        return date >= receivablesDateFrom;
+      });
+    }
+    if (receivablesDateTo) {
+      all = all.filter(item => {
+        const date = 'invoice_date' in item ? item.invoice_date : item.entry_date;
+        return date <= receivablesDateTo;
+      });
+    }
+
+    // Sort by date desc
+    return all.sort((a, b) => {
+      const dateA = 'invoice_date' in a ? a.invoice_date : a.entry_date;
+      const dateB = 'invoice_date' in b ? b.invoice_date : b.entry_date;
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+  };
+
   if (loading) {
     return (
       <div className="p-8 flex items-center justify-center">
@@ -150,6 +219,8 @@ export default function CustomerDetailPage() {
   }
 
   if (!customer) return null;
+
+  const filteredReceivables = getFilteredReceivables();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -337,7 +408,9 @@ export default function CustomerDetailPage() {
                       <tbody className="divide-y divide-border">
                         {invoices.map(inv => (
                           <tr key={inv.id} className="hover:bg-muted/30">
-                            <td className="px-3 py-2 text-sm font-semibold text-blue-600">{inv.invoice_number}</td>
+                            <td className="px-3 py-2 text-sm">
+                              <Link href={`/sales?view=${inv.id}`} className="font-semibold text-blue-600 hover:underline">{inv.invoice_number}</Link>
+                            </td>
                             <td className="px-3 py-2 text-sm text-muted-foreground">{formatDate(inv.invoice_date)}</td>
                             <td className="px-3 py-2 text-sm text-right font-semibold">{formatCurrency(inv.total_amount)}</td>
                             <td className="px-3 py-2 text-sm text-right text-green-600">{formatCurrency(inv.amount_paid)}</td>
@@ -383,7 +456,12 @@ export default function CustomerDetailPage() {
                         {salesReturns.map(ret => (
                           <tr key={ret.id} className="hover:bg-muted/30">
                             <td className="px-3 py-2 text-sm font-semibold text-orange-600">{ret.return_number}</td>
-                            <td className="px-3 py-2 text-sm text-blue-600">{ret.invoice?.invoice_number || '—'}</td>
+                            <td className="px-3 py-2 text-sm">
+                              {ret.invoice?.invoice_number && (
+                                <Link href={`/sales?view=${ret.invoice_id}`} className="text-blue-600 hover:underline">{ret.invoice.invoice_number}</Link>
+                              )}
+                              {!ret.invoice?.invoice_number && '—'}
+                            </td>
                             <td className="px-3 py-2 text-sm text-muted-foreground">{formatDate(ret.created_at)}</td>
                             <td className="px-3 py-2 text-sm text-right font-bold text-red-600">{formatCurrency(ret.total_refund_amount)}</td>
                             <td className="px-3 py-2 text-sm text-muted-foreground capitalize">{ret.refund_method?.replace(/_/g, ' ')}</td>
@@ -408,38 +486,129 @@ export default function CustomerDetailPage() {
               )}
 
               {activeTab === 'receivables' && (
-                <div className="overflow-x-auto">
-                  {manualReceivables.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
-                      <User className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                      No manual receivables
+                <div className="space-y-4">
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                    <Filter className="w-4 h-4 text-muted-foreground" />
+                    <div className="flex gap-1">
+                      {[
+                        { value: 'all', label: 'All' },
+                        { value: 'invoice', label: 'Invoices' },
+                        { value: 'manual', label: 'Manual' },
+                      ].map(f => (
+                        <button
+                          key={f.value}
+                          onClick={() => setReceivablesFilter(f.value as typeof receivablesFilter)}
+                          className={`px-3 py-1 text-xs font-medium rounded-lg transition ${receivablesFilter === f.value ? 'bg-blue-600 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
                     </div>
-                  ) : (
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Entry #</th>
-                          <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Date</th>
-                          <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Description</th>
-                          <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Amount</th>
-                          <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Paid</th>
-                          <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Outstanding</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {manualReceivables.map(rec => (
-                          <tr key={rec.id} className="hover:bg-muted/30">
-                            <td className="px-3 py-2 text-sm font-semibold text-blue-600">{rec.entry_number}</td>
-                            <td className="px-3 py-2 text-sm text-muted-foreground">{formatDate(rec.entry_date)}</td>
-                            <td className="px-3 py-2 text-sm text-foreground">{rec.description}</td>
-                            <td className="px-3 py-2 text-sm text-right font-semibold">{formatCurrency(rec.total_debit)}</td>
-                            <td className="px-3 py-2 text-sm text-right text-green-600">{formatCurrency(rec.paid_amount)}</td>
-                            <td className="px-3 py-2 text-sm text-right text-red-600 font-bold">{formatCurrency(rec.outstanding_balance)}</td>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <input
+                        type="date"
+                        value={receivablesDateFrom}
+                        onChange={e => setReceivablesDateFrom(e.target.value)}
+                        className="border border-border rounded px-2 py-1 text-xs"
+                        placeholder="From"
+                      />
+                      <span className="text-muted-foreground text-xs">to</span>
+                      <input
+                        type="date"
+                        value={receivablesDateTo}
+                        onChange={e => setReceivablesDateTo(e.target.value)}
+                        className="border border-border rounded px-2 py-1 text-xs"
+                        placeholder="To"
+                      />
+                      {(receivablesDateFrom || receivablesDateTo) && (
+                        <button onClick={() => { setReceivablesDateFrom(''); setReceivablesDateTo(''); }} className="text-xs text-muted-foreground hover:text-foreground">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Summary */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-blue-50 rounded-lg p-3">
+                      <p className="text-xs text-blue-600 font-medium">Invoice Outstanding</p>
+                      <p className="text-lg font-bold text-blue-700">{formatCurrency(stats.totalOutstanding)}</p>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-3">
+                      <p className="text-xs text-purple-600 font-medium">Manual Receivables</p>
+                      <p className="text-lg font-bold text-purple-700">{formatCurrency(stats.manualReceivablesOutstanding)}</p>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3 border border-red-100">
+                      <p className="text-xs text-red-600 font-medium">Total Outstanding</p>
+                      <p className="text-lg font-bold text-red-700">{formatCurrency(stats.totalOutstanding + stats.manualReceivablesOutstanding)}</p>
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    {filteredReceivables.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm">
+                        <User className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                        No receivables found
+                      </div>
+                    ) : (
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Type</th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Reference #</th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Date</th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Description</th>
+                            <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Amount</th>
+                            <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Paid</th>
+                            <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Outstanding</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {filteredReceivables.map(item => (
+                            <tr key={item.id} className="hover:bg-muted/30">
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${item.tag === 'invoice' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
+                                  {item.tag === 'invoice' ? 'Invoice' : 'Manual'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-sm">
+                                {item.tag === 'invoice' ? (
+                                  <Link href={`/sales?view=${item.id}`} className="font-semibold text-blue-600 hover:underline">{(item as InvoiceReceivable).invoice_number}</Link>
+                                ) : (
+                                  <span className="font-semibold text-purple-600">{(item as ManualReceivable).entry_number}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-muted-foreground">
+                                {formatDate(item.tag === 'invoice' ? (item as InvoiceReceivable).invoice_date : (item as ManualReceivable).entry_date)}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-foreground max-w-xs truncate">
+                                {item.tag === 'invoice' ? `Invoice ${(item as InvoiceReceivable).invoice_number}` : (item as ManualReceivable).description}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-right font-semibold">
+                                {formatCurrency(item.tag === 'invoice' ? (item as InvoiceReceivable).total_amount : (item as ManualReceivable).total_debit)}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-right text-green-600">
+                                {formatCurrency(item.tag === 'invoice' ? (item as InvoiceReceivable).amount_paid : (item as ManualReceivable).paid_amount)}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-right text-red-600 font-bold">
+                                {formatCurrency(item.tag === 'invoice' ? (item as InvoiceReceivable).balance_due : (item as ManualReceivable).outstanding_balance)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-muted/40 border-t-2 border-border">
+                            <td colSpan={6} className="px-3 py-2 text-sm font-semibold text-muted-foreground">Total Outstanding</td>
+                            <td className="px-3 py-2 text-sm text-right font-bold text-red-600">
+                              {formatCurrency(filteredReceivables.reduce((s, item) => s + (item.tag === 'invoice' ? (item as InvoiceReceivable).balance_due : (item as ManualReceivable).outstanding_balance), 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
                 </div>
               )}
 
