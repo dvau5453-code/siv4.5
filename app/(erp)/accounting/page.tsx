@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { DollarSign, CreditCard, TrendingUp, TrendingDown, ChartBar as BarChart3, Plus, X, ArrowUpRight, ArrowDownLeft, ExternalLink, User, Building2, HandCoins, CircleCheck as CheckCircle2 } from 'lucide-react';
+import { DollarSign, CreditCard, TrendingUp, TrendingDown, ChartBar as BarChart3, Plus, X, ArrowUpRight, ArrowDownLeft, ExternalLink, User, Building2, HandCoins, CircleCheck as CheckCircle2, ChevronDown, Receipt } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Link from 'next/link';
 import type { Account } from '@/lib/types';
@@ -50,6 +50,7 @@ export default function AccountingPage() {
   const [manualPayables, setManualPayables] = useState<ManualReceivablePayable[]>([]);
   const [showReceivablePayment, setShowReceivablePayment] = useState<ManualReceivablePayable | null>(null);
   const [showPayablePayment, setShowPayablePayment] = useState<ManualReceivablePayable | null>(null);
+  const [modalType, setModalType] = useState<'expense' | 'receivable' | 'payable' | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -330,9 +331,14 @@ export default function AccountingPage() {
           <p className="text-muted-foreground text-sm mt-0.5">Financial overview with automated double-entry</p>
         </div>
         <div className="flex items-center gap-2">
-          <RecordReceivableModal accounts={accounts} onSaved={loadData} />
-          <RecordPayableModal accounts={accounts} onSaved={loadData} />
-          <QuickExpenseModal accounts={accounts} onSaved={loadData} />
+          <RecordDropdown
+            onExpense={() => setModalType('expense')}
+            onReceivable={() => setModalType('receivable')}
+            onPayable={() => setModalType('payable')}
+          />
+          {modalType === 'expense' && <QuickExpenseModal accounts={accounts} onSaved={loadData} onClose={() => setModalType(null)} />}
+          {modalType === 'receivable' && <RecordReceivableModal accounts={accounts} onSaved={loadData} onClose={() => setModalType(null)} />}
+          {modalType === 'payable' && <RecordPayableModal accounts={accounts} onSaved={loadData} onClose={() => setModalType(null)} />}
         </div>
       </div>
 
@@ -607,8 +613,57 @@ export default function AccountingPage() {
   );
 }
 
-function QuickExpenseModal({ accounts, onSaved }: { accounts: Account[]; onSaved: () => void }) {
-  const [show, setShow] = useState(false);
+function RecordDropdown({ onExpense, onReceivable, onPayable }: { onExpense: () => void; onReceivable: () => void; onPayable: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const options = [
+    { label: 'Record Expense', desc: 'Rent, salary, utility, etc.', icon: Receipt, color: 'text-blue-600 bg-blue-50', onClick: onExpense },
+    { label: 'Record Receivable', desc: 'Money owed by a customer', icon: User, color: 'text-green-600 bg-green-50', onClick: onReceivable },
+    { label: 'Record Payable', desc: 'Money owed to a supplier', icon: Building2, color: 'text-amber-600 bg-amber-50', onClick: onPayable },
+  ];
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
+      >
+        <Plus className="w-4 h-4" />Record
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-xl shadow-lg z-50 w-64 overflow-hidden">
+          {options.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => { opt.onClick(); setOpen(false); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition text-left border-b border-border/50 last:border-0"
+            >
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${opt.color}`}>
+                <opt.icon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">{opt.label}</p>
+                <p className="text-xs text-muted-foreground truncate">{opt.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuickExpenseModal({ accounts, onSaved, onClose }: { accounts: Account[]; onSaved: () => void; onClose: () => void }) {
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     amount: '',
@@ -672,8 +727,8 @@ function QuickExpenseModal({ accounts, onSaved }: { accounts: Account[]; onSaved
 
       toast({ title: 'Success', description: 'Expense recorded successfully' });
       setForm({ date: new Date().toISOString().split('T')[0], amount: '', expense_account: '', paid_from: '', description: '' });
-      setShow(false);
       onSaved();
+      onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to record expense');
     } finally {
@@ -682,21 +737,13 @@ function QuickExpenseModal({ accounts, onSaved }: { accounts: Account[]; onSaved
   }
 
   return (
-    <>
-      <button
-        onClick={() => setShow(true)}
-        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
-      >
-        <Plus className="w-4 h-4" />Record Expense
-      </button>
-      {show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="text-base font-bold">Quick Expense Entry</h2>
-              <button onClick={() => setShow(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold">Quick Expense Entry</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
 
               <div className="grid grid-cols-2 gap-4">
@@ -737,7 +784,7 @@ function QuickExpenseModal({ accounts, onSaved }: { accounts: Account[]; onSaved
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShow(false)} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
+                <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60">
                   {saving ? 'Saving...' : 'Record Expense'}
                 </button>
@@ -745,13 +792,10 @@ function QuickExpenseModal({ accounts, onSaved }: { accounts: Account[]; onSaved
             </form>
           </div>
         </div>
-      )}
-    </>
   );
 }
 
-function RecordReceivableModal({ accounts, onSaved }: { accounts: Account[]; onSaved: () => void }) {
-  const [show, setShow] = useState(false);
+function RecordReceivableModal({ accounts, onSaved, onClose }: { accounts: Account[]; onSaved: () => void; onClose: () => void }) {
   const [customers, setCustomers] = useState<any[]>([]);
   const [form, setForm] = useState({
     customer_id: '',
@@ -766,11 +810,9 @@ function RecordReceivableModal({ accounts, onSaved }: { accounts: Account[]; onS
   const arAccount = accounts.find(a => a.code === '1100');
 
   useEffect(() => {
-    if (show) {
-      supabase.from('customers').select('id, name, code, phone').eq('is_active', true).order('name')
-        .then(({ data }) => setCustomers(data || []));
-    }
-  }, [show]);
+    supabase.from('customers').select('id, name, code, phone').eq('is_active', true).order('name')
+      .then(({ data }) => setCustomers(data || []));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -826,8 +868,8 @@ function RecordReceivableModal({ accounts, onSaved }: { accounts: Account[]; onS
 
       toast({ title: 'Success', description: `Receivable of ${formatCurrency(amount)} recorded` });
       setForm({ customer_id: '', amount: '', description: '', due_date: '', date: new Date().toISOString().split('T')[0] });
-      setShow(false);
       onSaved();
+      onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to record receivable');
     } finally {
@@ -836,21 +878,13 @@ function RecordReceivableModal({ accounts, onSaved }: { accounts: Account[]; onS
   }
 
   return (
-    <>
-      <button
-        onClick={() => setShow(true)}
-        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
-      >
-        <User className="w-4 h-4" />Record Receivable
-      </button>
-      {show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="text-base font-bold flex items-center gap-2"><User className="w-4 h-4" />Record Receivable</h2>
-              <button onClick={() => setShow(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold flex items-center gap-2"><User className="w-4 h-4" />Record Receivable</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
 
               <div>
@@ -882,21 +916,18 @@ function RecordReceivableModal({ accounts, onSaved }: { accounts: Account[]; onS
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShow(false)} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
+                <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60">
                   {saving ? 'Saving...' : 'Record'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
-function RecordPayableModal({ accounts, onSaved }: { accounts: Account[]; onSaved: () => void }) {
-  const [show, setShow] = useState(false);
+function RecordPayableModal({ accounts, onSaved, onClose }: { accounts: Account[]; onSaved: () => void; onClose: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [form, setForm] = useState({
     supplier_id: '',
@@ -910,11 +941,9 @@ function RecordPayableModal({ accounts, onSaved }: { accounts: Account[]; onSave
   const apAccount = accounts.find(a => a.code === '2000');
 
   useEffect(() => {
-    if (show) {
-      supabase.from('suppliers').select('id, name, code, phone').eq('is_active', true).order('name')
-        .then(({ data }) => setSuppliers(data || []));
-    }
-  }, [show]);
+    supabase.from('suppliers').select('id, name, code, phone').eq('is_active', true).order('name')
+      .then(({ data }) => setSuppliers(data || []));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -970,8 +999,8 @@ function RecordPayableModal({ accounts, onSaved }: { accounts: Account[]; onSave
 
       toast({ title: 'Success', description: `Payable of ${formatCurrency(amount)} recorded` });
       setForm({ supplier_id: '', amount: '', description: '', date: new Date().toISOString().split('T')[0] });
-      setShow(false);
       onSaved();
+      onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to record payable');
     } finally {
@@ -980,21 +1009,13 @@ function RecordPayableModal({ accounts, onSaved }: { accounts: Account[]; onSave
   }
 
   return (
-    <>
-      <button
-        onClick={() => setShow(true)}
-        className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
-      >
-        <Building2 className="w-4 h-4" />Record Payable
-      </button>
-      {show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="text-base font-bold flex items-center gap-2"><Building2 className="w-4 h-4" />Record Payable</h2>
-              <button onClick={() => setShow(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold flex items-center gap-2"><Building2 className="w-4 h-4" />Record Payable</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
 
               <div>
@@ -1026,16 +1047,14 @@ function RecordPayableModal({ accounts, onSaved }: { accounts: Account[]; onSave
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShow(false)} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
+                <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60">
                   {saving ? 'Saving...' : 'Record'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Plus, ChevronDown, ChevronRight, FileText, Receipt, CreditCard, Package, ArrowRightLeft, ShoppingBag, X, Trash2, Lightbulb, Banknote, Building2, Zap, Truck, Users, RotateCcw, Search, Filter, Pencil as Edit2, TriangleAlert as AlertTriangle, Info, User } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FileText, Receipt, CreditCard, Package, ArrowRightLeft, ShoppingBag, X, Trash2, Lightbulb, Banknote, Building2, Zap, Truck, Users, RotateCcw, Search, Filter, Pencil as Edit2, TriangleAlert as AlertTriangle, Info, User, Calendar, Link as LinkIcon } from 'lucide-react';
 import type { Account } from '@/lib/types';
 
 interface JournalLine {
@@ -185,25 +185,41 @@ export default function JournalPage() {
   const [showModal, setShowModal] = useState(false);
   const [filterType, setFilterType] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [period, setPeriod] = useState<'today' | 'last7' | 'last30' | 'all'>('today');
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<JournalEntry | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [period]);
+
+  function getDateRange() {
+    const today = new Date().toISOString().split('T')[0];
+    if (period === 'today') return { from: today, to: today };
+    if (period === 'last7') {
+      const d = new Date(); d.setDate(d.getDate() - 6);
+      return { from: d.toISOString().split('T')[0], to: today };
+    }
+    if (period === 'last30') {
+      const d = new Date(); d.setDate(d.getDate() - 29);
+      return { from: d.toISOString().split('T')[0], to: today };
+    }
+    return { from: '', to: '' };
+  }
 
   async function loadData() {
     setLoading(true);
+    const { from, to } = getDateRange();
+    let query = supabase.from('journal_entries')
+      .select(`
+        id, entry_number, entry_date, description, reference_type, reference_id,
+        total_debit, total_credit, is_posted, created_at, customer_id, supplier_id,
+        customer:customers(name), supplier:suppliers(name)
+      `)
+      .order('entry_date', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (from) query = query.gte('entry_date', from);
+    if (to) query = query.lte('entry_date', to);
     const [entriesRes, accountsRes] = await Promise.all([
-      supabase.from('journal_entries')
-        .select(`
-          id, entry_number, entry_date, description, reference_type, reference_id,
-          total_debit, total_credit, is_posted, created_at, customer_id, supplier_id,
-          customer:customers(name), supplier:suppliers(name)
-        `)
-        .order('entry_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(200),
+      query.limit(500),
       supabase.from('accounts').select('*').eq('is_active', true).order('code'),
     ]);
     setEntries(entriesRes.data || []);
@@ -228,8 +244,6 @@ export default function JournalPage() {
   // Filter entries
   const filtered = entries.filter(e => {
     if (filterType && e.reference_type !== filterType) return false;
-    if (dateFrom && e.entry_date < dateFrom) return false;
-    if (dateTo && e.entry_date > dateTo) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchDesc = e.description?.toLowerCase().includes(q);
@@ -291,6 +305,26 @@ export default function JournalPage() {
 
       {/* Filter bar */}
       <div className="bg-white rounded-xl border border-border p-4 shadow-sm space-y-3">
+        {/* Period selector */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+          {([
+            { value: 'today', label: 'Today' },
+            { value: 'last7', label: 'Last 7 Days' },
+            { value: 'last30', label: 'Last 30 Days' },
+            { value: 'all', label: 'All Entries' },
+          ] as const).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setPeriod(opt.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${period === opt.value ? 'bg-blue-600 text-white' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
             <Search className="w-4 h-4 text-muted-foreground" />
@@ -306,24 +340,6 @@ export default function JournalPage() {
                 <X className="w-4 h-4" />
               </button>
             )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              className="border border-border rounded-lg px-2 py-1.5 text-sm"
-              placeholder="From"
-            />
-            <span className="text-muted-foreground text-sm">to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-              className="border border-border rounded-lg px-2 py-1.5 text-sm"
-              placeholder="To"
-            />
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -375,7 +391,9 @@ export default function JournalPage() {
                 <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
                   <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
                   <p className="font-medium">No entries found</p>
-                  <p className="text-xs mt-1">Try adjusting your filters or search query</p>
+                  <p className="text-xs mt-1">
+                    {period === 'today' ? 'No journal entries for today. Try "Last 7 Days" to see more.' : 'Try adjusting your filters or date range'}
+                  </p>
                 </td>
               </tr>
             ) : (
@@ -475,19 +493,12 @@ function JournalEntryRow({ entry, accounts, isExpanded, onToggle, onEdit, onDele
         </td>
         <td className="px-4 py-3 text-center">
           <div className="flex items-center justify-center gap-1">
-            {!isAuto && (
-              <>
-                <button onClick={onEdit} className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title="Edit entry">
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition" title="Delete entry">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </>
-            )}
-            {isAuto && (
-              <span className="text-[10px] text-muted-foreground italic">Auto</span>
-            )}
+            <button onClick={onEdit} className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title={isAuto ? 'Edit auto-posted entry (with impact preview)' : 'Edit entry'}>
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition" title={isAuto ? 'Delete auto-posted entry (with impact preview)' : 'Delete entry'}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         </td>
       </tr>
@@ -921,6 +932,8 @@ function EditJournalEntryModal({ entry, accounts, onClose, onSaved }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [linkedRecords, setLinkedRecords] = useState<{ type: string; label: string; detail: string }[]>([]);
+  const isAuto = entry.reference_type !== 'manual' && entry.reference_type !== null;
 
   useEffect(() => {
     async function loadLines() {
@@ -939,10 +952,40 @@ function EditJournalEntryModal({ entry, accounts, onClose, onSaved }: {
       }));
       setLines(loadedLines);
       setOriginalLines((jl || []).map(l => ({ accountId: l.account_id, debit: Number(l.debit), credit: Number(l.credit) })));
+
+      // Load linked records for auto-posted entries
+      if (isAuto && entry.reference_id) {
+        const linked: { type: string; label: string; detail: string }[] = [];
+        try {
+          if (entry.reference_type === 'invoice') {
+            const { data } = await supabase.from('invoices').select('invoice_number, status, total_amount').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Invoice', label: data.invoice_number, detail: `${data.status} — ${formatCurrency(data.total_amount)}` });
+          } else if (entry.reference_type === 'payment') {
+            const { data } = await supabase.from('payments').select('payment_number, amount, payment_type').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Payment', label: data.payment_number, detail: `${data.payment_type} — ${formatCurrency(data.amount)}` });
+          } else if (entry.reference_type === 'grn') {
+            const { data } = await supabase.from('goods_receipt_notes').select('grn_number, status').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'GRN', label: data.grn_number, detail: data.status });
+          } else if (entry.reference_type === 'sales_return') {
+            const { data } = await supabase.from('sales_returns').select('return_number, total_refund_amount, status').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Sales Return', label: data.return_number, detail: `${data.status} — ${formatCurrency(data.total_refund_amount)}` });
+          }
+        } catch (_) {}
+        if (entry.customer_id) {
+          const { data } = await supabase.from('customers').select('name, outstanding_balance').eq('id', entry.customer_id).maybeSingle();
+          if (data) linked.push({ type: 'Customer', label: data.name, detail: `Outstanding: ${formatCurrency(data.outstanding_balance)}` });
+        }
+        if (entry.supplier_id) {
+          const { data } = await supabase.from('suppliers').select('name, outstanding_balance').eq('id', entry.supplier_id).maybeSingle();
+          if (data) linked.push({ type: 'Supplier', label: data.name, detail: `Outstanding: ${formatCurrency(data.outstanding_balance)}` });
+        }
+        setLinkedRecords(linked);
+      }
+
       setLoading(false);
     }
     loadLines();
-  }, [entry.id]);
+  }, [entry.id, entry.reference_id, entry.reference_type, entry.customer_id, entry.supplier_id, isAuto]);
 
   const totalDebit = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
@@ -1044,14 +1087,37 @@ function EditJournalEntryModal({ entry, accounts, onClose, onSaved }: {
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
 
-          {/* Warning */}
-          <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg flex gap-2 text-xs text-amber-700">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <div>
-              <p className="font-medium">Editing this entry will recalculate affected account balances.</p>
-              <p className="mt-1">Original amounts will be reversed and new amounts applied.</p>
+          {/* Auto-posted warning with linked records */}
+          {isAuto ? (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+              <div className="flex gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div className="text-sm text-red-700">
+                  <p className="font-semibold">This is an auto-posted entry from {refLabels[entry.reference_type || ''] || entry.reference_type}.</p>
+                  <p className="text-xs mt-1 text-red-600">Editing this entry only changes the journal amounts — it does NOT update the original source document (invoice, payment, etc.).</p>
+                </div>
+              </div>
+              {linkedRecords.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  <p className="text-xs font-semibold text-red-600 flex items-center gap-1"><LinkIcon className="w-3 h-3" />Linked records that will NOT be updated:</p>
+                  {linkedRecords.map((rec, i) => (
+                    <div key={i} className="flex items-center justify-between bg-red-100/60 rounded px-2 py-1 text-xs">
+                      <span className="font-medium text-red-700">{rec.type}: {rec.label}</span>
+                      <span className="text-red-500">{rec.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg flex gap-2 text-xs text-amber-700">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div>
+                <p className="font-medium">Editing this entry will recalculate affected account balances.</p>
+                <p className="mt-1">Original amounts will be reversed and new amounts applied.</p>
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
@@ -1159,7 +1225,9 @@ function DeleteJournalEntryModal({ entry, accounts, onClose, onDeleted }: {
 }) {
   const [deleting, setDeleting] = useState(false);
   const [impact, setImpact] = useState<{ account: string; change: number }[]>([]);
+  const [linkedRecords, setLinkedRecords] = useState<{ type: string; label: string; detail: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const isAuto = entry.reference_type !== 'manual' && entry.reference_type !== null;
 
   useEffect(() => {
     async function loadImpact() {
@@ -1174,18 +1242,46 @@ function DeleteJournalEntryModal({ entry, accounts, onClose, onDeleted }: {
         if (acc) {
           const isAssetOrExpense = acc.account_type === 'asset' || acc.account_type === 'expense';
           const currentEffect = isAssetOrExpense ? (Number(l.debit) - Number(l.credit)) : (Number(l.credit) - Number(l.debit));
-          const reverseEffect = -currentEffect;
-          impacts.push({
-            account: `${acc.code} – ${acc.name}`,
-            change: reverseEffect,
-          });
+          impacts.push({ account: `${acc.code} – ${acc.name}`, change: -currentEffect });
         }
       }
       setImpact(impacts);
+
+      // Load linked records for auto-posted entries
+      if (isAuto && entry.reference_id) {
+        const linked: { type: string; label: string; detail: string }[] = [];
+        try {
+          if (entry.reference_type === 'invoice') {
+            const { data } = await supabase.from('invoices').select('invoice_number, status, total_amount, amount_paid').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Invoice', label: data.invoice_number, detail: `${data.status} — ${formatCurrency(data.total_amount)} total, ${formatCurrency(data.amount_paid)} paid` });
+            const { data: payments } = await supabase.from('payments').select('payment_number, amount').eq('reference_id', entry.reference_id);
+            (payments || []).forEach(p => linked.push({ type: 'Payment', label: p.payment_number, detail: formatCurrency(p.amount) }));
+          } else if (entry.reference_type === 'payment') {
+            const { data } = await supabase.from('payments').select('payment_number, amount, payment_type, payment_method').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Payment', label: data.payment_number, detail: `${data.payment_type} via ${data.payment_method} — ${formatCurrency(data.amount)}` });
+          } else if (entry.reference_type === 'grn') {
+            const { data } = await supabase.from('goods_receipt_notes').select('grn_number, status').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'GRN', label: data.grn_number, detail: data.status });
+          } else if (entry.reference_type === 'sales_return') {
+            const { data } = await supabase.from('sales_returns').select('return_number, total_refund_amount, status').eq('id', entry.reference_id).maybeSingle();
+            if (data) linked.push({ type: 'Sales Return', label: data.return_number, detail: `${data.status} — ${formatCurrency(data.total_refund_amount)}` });
+          }
+        } catch (_) {}
+        if (entry.customer_id) {
+          const { data } = await supabase.from('customers').select('name, outstanding_balance').eq('id', entry.customer_id).maybeSingle();
+          if (data) linked.push({ type: 'Customer', label: data.name, detail: `Outstanding: ${formatCurrency(data.outstanding_balance)}` });
+        }
+        if (entry.supplier_id) {
+          const { data } = await supabase.from('suppliers').select('name, outstanding_balance').eq('id', entry.supplier_id).maybeSingle();
+          if (data) linked.push({ type: 'Supplier', label: data.name, detail: `Outstanding: ${formatCurrency(data.outstanding_balance)}` });
+        }
+        setLinkedRecords(linked);
+      }
+
       setLoading(false);
     }
     loadImpact();
-  }, [entry.id]);
+  }, [entry.id, entry.reference_id, entry.reference_type, entry.customer_id, entry.supplier_id, isAuto]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -1225,14 +1321,46 @@ function DeleteJournalEntryModal({ entry, accounts, onClose, onDeleted }: {
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Warning */}
-          <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-            <div className="text-sm text-red-700">
-              <p className="font-medium">This action cannot be undone.</p>
-              <p className="mt-1 text-xs text-red-600">Deleting this entry will reverse all account balance changes it caused.</p>
+          {/* Auto-posted warning with linked records */}
+          {isAuto ? (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+              <div className="text-sm text-red-700">
+                <p className="font-semibold">Warning: This is an auto-posted {refLabels[entry.reference_type || ''] || entry.reference_type} entry.</p>
+                <p className="mt-1 text-xs text-red-600">Deleting this journal entry will reverse the account balances below — but the original source document (invoice, payment, etc.) will remain unchanged. This may cause data inconsistencies.</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-700">
+                <p className="font-medium">This action cannot be undone.</p>
+                <p className="mt-1 text-xs">Deleting this entry will reverse all account balance changes it caused.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Linked records (auto entries only) */}
+          {isAuto && linkedRecords.length > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <LinkIcon className="w-4 h-4 text-orange-500" />
+                <p className="text-xs font-semibold text-orange-700">Connected Records (will NOT be deleted)</p>
+              </div>
+              {loading ? (
+                <div className="text-xs text-muted-foreground">Loading connections...</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {linkedRecords.map((rec, i) => (
+                    <div key={i} className="flex items-center justify-between bg-orange-100/60 rounded px-2 py-1.5 text-xs">
+                      <span className="font-semibold text-orange-700">{rec.type}: {rec.label}</span>
+                      <span className="text-orange-600">{rec.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Impact preview */}
           <div className="bg-muted/40 rounded-lg p-4">
@@ -1280,7 +1408,7 @@ function DeleteJournalEntryModal({ entry, accounts, onClose, onDeleted }: {
               disabled={deleting || loading}
               className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
             >
-              {deleting ? 'Deleting...' : 'Delete Entry'}
+              {deleting ? 'Deleting...' : isAuto ? 'Delete Anyway' : 'Delete Entry'}
             </button>
           </div>
         </div>
