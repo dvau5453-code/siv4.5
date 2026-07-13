@@ -291,7 +291,7 @@ export default function SalesPage() {
 
           {/* Print body — only visible on details tab */}
           {viewTab === 'details' ? (
-          <div className="p-0">
+          <div className="p-8">
             <PrintTemplate
               docType="INVOICE"
               docNumber={invoice.invoice_number}
