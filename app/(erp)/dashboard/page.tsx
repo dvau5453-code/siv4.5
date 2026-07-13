@@ -69,7 +69,7 @@ export default function DashboardPage() {
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
     const [
-      todayInvRes, monthlyInvRes, customersRes, suppliersRes, invItemsRes,
+      todayInvRes, monthlyInvRes, customersRes, suppliersRes,
       quotRes, projRes, dlvRes, onlineOrdersRes, topCustRes, duesRes,
       lowStockRes, activeProjRes, actRes
     ] = await Promise.all([
@@ -77,7 +77,6 @@ export default function DashboardPage() {
       supabase.from('invoices').select('total_amount, created_at').gte('invoice_date', monthStart).neq('status', 'cancelled'),
       supabase.from('customers').select('outstanding_balance'),
       supabase.from('suppliers').select('outstanding_balance'),
-      supabase.from('inventory_items').select('quantity_on_hand, product:products(cost_price)'),
       supabase.from('quotations').select('id, status'),
       supabase.from('projects').select('id, status'),
       supabase.from('deliveries').select('status'),
@@ -89,11 +88,26 @@ export default function DashboardPage() {
       supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(5),
     ]);
 
+    // Paginate inventory_items to avoid the 1000-row Supabase default cap
+    let allInvItems: any[] = [];
+    {
+      let pg = 0;
+      while (true) {
+        const { data: pageData } = await supabase
+          .from('inventory_items')
+          .select('quantity_on_hand, product:products(cost_price)')
+          .range(pg * 1000, (pg + 1) * 1000 - 1);
+        allInvItems = allInvItems.concat(pageData || []);
+        if (!pageData || pageData.length < 1000) break;
+        pg++;
+      }
+    }
+
     const todaySales = (todayInvRes.data || []).reduce((s: number, i: any) => s + Number(i.total_amount), 0);
     const monthlySales = (monthlyInvRes.data || []).reduce((s: number, i: any) => s + Number(i.total_amount), 0);
     const receivables = (customersRes.data || []).reduce((s: number, c: any) => s + Number(c.outstanding_balance), 0);
     const payables = (suppliersRes.data || []).reduce((s: number, s2: any) => s + Number(s2.outstanding_balance), 0);
-    const invValue = (invItemsRes.data || []).reduce((s: number, item: any) => s + (Number(item.quantity_on_hand) * Number(item.product?.cost_price || 0)), 0);
+    const invValue = allInvItems.reduce((s: number, item: any) => s + (Number(item.quantity_on_hand) * Number(item.product?.cost_price || 0)), 0);
 
     const quotations = quotRes.data || [];
     const projects = projRes.data || [];
@@ -107,7 +121,7 @@ export default function DashboardPage() {
       todaySales,
       monthlySales,
       inventoryValue: invValue,
-      inventoryItems: invItemsRes.data?.length || 0,
+      inventoryItems: allInvItems.length,
       receivables,
       payables,
       quotationTotal: quotations.length,

@@ -60,7 +60,7 @@ export default function DeliveryChallan({
     <>
       <style>{`
         @media print {
-          @page { size: A4; margin: 10mm; }
+          @page { size: A4; margin: 8mm; }
           body * { visibility: hidden !important; }
           .print-document, .print-document * { visibility: visible !important; }
           .print-document {
@@ -75,8 +75,9 @@ export default function DeliveryChallan({
           .print-items-table { page-break-inside: auto; }
           .print-items-table tr { page-break-inside: avoid; break-inside: avoid; page-break-after: auto; }
           .print-footer-section { page-break-inside: avoid; break-inside: avoid; }
-          .print-header-logo { height: 60px !important; }
-          .print-header-section { padding: 8px 16px !important; }
+          .print-header-logo { height: 52px !important; }
+          .print-header-section { padding: 6px 14px !important; }
+          .print-items-table td, .print-items-table th { padding-top: 3px !important; padding-bottom: 3px !important; }
         }
       `}</style>
 
@@ -366,20 +367,7 @@ export default function DeliveryChallan({
                 );
               })
             )}
-            {/* Filler rows to ensure minimum table height for professional layout */}
-            {Array.from({ length: Math.max(0, 12 - items.length) }).map((_, idx) => (
-              <tr
-                key={`filler-${idx}`}
-                style={{
-                  background: (items.length + idx) % 2 === 0 ? '#fff' : '#f5f8ff',
-                  borderBottom: '1px solid #e8edf6',
-                }}
-              >
-                {Array.from({ length: 5 }).map((_, colIdx) => (
-                  <td key={colIdx} style={{ padding: '9px 10px', fontSize: '12px', height: '38px' }}>&nbsp;</td>
-                ))}
-              </tr>
-            ))}
+
             {/* Total row */}
             <tr style={{ background: PRIMARY }}>
               <td colSpan={4} style={{ padding: '9px 10px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: '#fff', letterSpacing: '0.5px' }}>

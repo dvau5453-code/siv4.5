@@ -149,7 +149,7 @@ export default function PrintTemplate({
         @media print {
           @page {
             size: A4;
-            margin: 10mm;
+            margin: 8mm;
           }
           body * { visibility: hidden !important; }
           .print-document, .print-document * { visibility: visible !important; }
@@ -191,6 +191,10 @@ export default function PrintTemplate({
             page-break-inside: avoid;
             break-inside: avoid;
           }
+          /* Compact print overrides to fit on one A4 page */
+          .print-document img.print-header-logo { height: 54px !important; }
+          .print-info-section td { padding-bottom: 1px !important; }
+          .print-items-table td, .print-items-table th { padding-top: 2px !important; padding-bottom: 2px !important; }
         }
       `}</style>
 
@@ -204,7 +208,7 @@ export default function PrintTemplate({
           margin: '0 auto',
           border: '1px solid #dde3ef',
           borderRadius: '4px',
-          overflow: 'hidden',
+          overflow: 'visible',
           boxSizing: 'border-box',
         }}
       >
@@ -547,20 +551,7 @@ export default function PrintTemplate({
                 </tr>
               ))
             )}
-            {/* Filler rows — capped at 5 to avoid pushing content to page 2 */}
-            {Array.from({ length: Math.max(0, Math.min(5, 12 - items.length)) }).map((_, idx) => (
-              <tr
-                key={`filler-${idx}`}
-                style={{
-                  background: (items.length + idx) % 2 === 0 ? '#fff' : '#f5f8ff',
-                  borderBottom: '1px solid #e8edf6',
-                }}
-              >
-                {Array.from({ length: 8 }).map((_, colIdx) => (
-                  <td key={colIdx} style={{ padding: '3px 8px', fontSize: '11px', height: '24px' }}>&nbsp;</td>
-                ))}
-              </tr>
-            ))}
+
           </tbody>
         </table>
 
