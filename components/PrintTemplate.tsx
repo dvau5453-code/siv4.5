@@ -176,12 +176,11 @@ export default function PrintTemplate({
             break-inside: avoid;
           }
           .print-items-table {
-            page-break-inside: auto;
+           page-break-inside: auto !important;
           }
           .print-items-table tr {
-            page-break-inside: avoid;
+            page-break-inside: avoid !important;
             break-inside: avoid;
-            page-break-after: auto;
           }
           .print-footer-section {
             page-break-inside: avoid;
