@@ -11,6 +11,106 @@ import { Package, Plus, Search, CreditCard as Edit, Trash2, TriangleAlert as Ale
 import type { Product, Category, Brand, Warehouse as WarehouseType, ProductColor, ProductSize, ProductUnit } from '@/lib/types';
 import Pagination from '@/components/ui/AppPagination';
 
+// ─── Searchable combobox ──────────────────────────────────────────────────────
+interface SearchableSelectOption { value: string; label: string; group?: string }
+interface SearchableSelectProps {
+  value: string;
+  onChange: (v: string) => void;
+  options: SearchableSelectOption[];
+  placeholder?: string;
+  className?: string;
+}
+function SearchableSelect({ value, onChange, options, placeholder = 'Select…', className = '' }: SearchableSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = search.trim()
+    ? options.filter(o => o.label.toLowerCase().includes(search.trim().toLowerCase()))
+    : options;
+
+  const selected = options.find(o => o.value === value);
+
+  // Group options if any have a `group` field
+  const hasGroups = options.some(o => o.group);
+  const groups: string[] = hasGroups
+    ? Array.from(new Set(options.map(o => o.group ?? ''))).filter(Boolean)
+    : [];
+
+  function renderList() {
+    if (!hasGroups || search.trim()) {
+      return filtered.map(o => (
+        <button key={o.value} type="button" onMouseDown={() => { onChange(o.value); setSearch(''); setOpen(false); }}
+          className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${value === o.value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-foreground'}`}>
+          {o.label}
+        </button>
+      ));
+    }
+    return (
+      <>
+        {/* Ungrouped first */}
+        {filtered.filter(o => !o.group).map(o => (
+          <button key={o.value} type="button" onMouseDown={() => { onChange(o.value); setSearch(''); setOpen(false); }}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${value === o.value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-foreground'}`}>
+            {o.label}
+          </button>
+        ))}
+        {groups.map(g => {
+          const groupItems = filtered.filter(o => o.group === g);
+          if (!groupItems.length) return null;
+          return (
+            <div key={g}>
+              <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wide bg-muted/30 border-y border-border/50">{g}</div>
+              {groupItems.map(o => (
+                <button key={o.value} type="button" onMouseDown={() => { onChange(o.value); setSearch(''); setOpen(false); }}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-blue-50 transition-colors ${value === o.value ? 'bg-blue-50 text-blue-600 font-medium' : 'text-foreground'}`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+
+  return (
+    <div ref={ref} className={`relative ${className}`}>
+      <button type="button" onClick={() => { setOpen(o => !o); setSearch(''); }}
+        className="w-full flex items-center justify-between border border-border rounded-lg px-3 py-2 text-sm bg-white hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition">
+        <span className={selected ? 'text-foreground' : 'text-muted-foreground'}>{selected ? selected.label : placeholder}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-[200] top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-border bg-muted/20">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <input autoFocus type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search…"
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white" />
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-center text-muted-foreground">No results</div>
+            ) : renderList()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function StockByWarehouse({ productId, warehouses, inventoryByWarehouse, unit }: { productId: string; warehouses: WarehouseType[]; inventoryByWarehouse: Record<string, Record<string, number>>; unit?: string }) {
   const stockByWh = inventoryByWarehouse[productId] || {};
   const displayUnit = unit || 'pcs';
@@ -288,21 +388,25 @@ export default function InventoryPage() {
             className="w-full pl-8 pr-4 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-          <option value="">All Categories</option>
-          {categories.filter(c => !c.parent_id).map(c => (
-            <optgroup key={c.id} label={c.name}>
-              <option key={c.id} value={c.id}>{c.name}</option>
-              {categories.filter(sc => sc.parent_id === c.id).map(sc => (
-                <option key={sc.id} value={sc.id}>&nbsp;&nbsp;{sc.name}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        <select value={filterBrand} onChange={e => setFilterBrand(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-          <option value="">All Brands</option>
-          {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterCategory}
+          onChange={setFilterCategory}
+          placeholder="All Categories"
+          className="min-w-[150px]"
+          options={[
+            ...categories.filter(c => !c.parent_id).flatMap(c => [
+              { value: c.id, label: c.name, group: c.name },
+              ...categories.filter(sc => sc.parent_id === c.id).map(sc => ({ value: sc.id, label: `  ${sc.name}`, group: c.name })),
+            ]),
+          ]}
+        />
+        <SearchableSelect
+          value={filterBrand}
+          onChange={setFilterBrand}
+          placeholder="All Brands"
+          className="min-w-[130px]"
+          options={brands.map(b => ({ value: b.id, label: b.name }))}
+        />
         <select value={filterWarehouse} onChange={e => setFilterWarehouse(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
           <option value="">All Warehouses</option>
           {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -315,10 +419,13 @@ export default function InventoryPage() {
           <option value="out">Out of Stock</option>
         </select>
         {allColors.length > 0 && (
-          <select value={filterColor} onChange={e => setFilterColor(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-            <option value="">All Colors</option>
-            {allColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={filterColor}
+            onChange={setFilterColor}
+            placeholder="All Colors"
+            className="min-w-[120px]"
+            options={allColors.map(c => ({ value: c.name, label: c.name }))}
+          />
         )}
         {allSizes.length > 0 && (
           <select value={filterSize} onChange={e => setFilterSize(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
@@ -327,10 +434,13 @@ export default function InventoryPage() {
           </select>
         )}
         {unitTypes.length > 0 && (
-          <select value={filterUnit} onChange={e => setFilterUnit(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-            <option value="">All Units</option>
-            {unitTypes.map(u => <option key={u.id} value={u.unit_name}>{u.unit_name}</option>)}
-          </select>
+          <SearchableSelect
+            value={filterUnit}
+            onChange={setFilterUnit}
+            placeholder="All Units"
+            className="min-w-[110px]"
+            options={unitTypes.map(u => ({ value: u.unit_name, label: u.unit_name }))}
+          />
         )}
         <button onClick={loadData} className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm hover:bg-muted transition">
           <RefreshCw className="w-3.5 h-3.5" />
@@ -840,24 +950,24 @@ function ProductModal({ categories, brands, warehouses, unitTypes, product, onCl
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium mb-1">Category</label>
-              <select value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
-                <option value="">Select category</option>
-                {categories.filter(c => !c.parent_id).map(c => (
-                  <optgroup key={c.id} label={c.name}>
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                    {categories.filter(sc => sc.parent_id === c.id).map(sc => (
-                      <option key={sc.id} value={sc.id}>&nbsp;&nbsp;&nbsp;{sc.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <SearchableSelect
+                value={form.category_id}
+                onChange={v => setForm({ ...form, category_id: v })}
+                placeholder="Select category"
+                options={categories.filter(c => !c.parent_id).flatMap(c => [
+                  { value: c.id, label: c.name, group: c.name },
+                  ...categories.filter(sc => sc.parent_id === c.id).map(sc => ({ value: sc.id, label: `\u00a0\u00a0${sc.name}`, group: c.name })),
+                ])}
+              />
             </div>
             <div>
               <label className="block text-xs font-medium mb-1">Brand</label>
-              <select value={form.brand_id} onChange={e => setForm({ ...form, brand_id: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
-                <option value="">Select brand</option>
-                {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <SearchableSelect
+                value={form.brand_id}
+                onChange={v => setForm({ ...form, brand_id: v })}
+                placeholder="Select brand"
+                options={brands.map(b => ({ value: b.id, label: b.name }))}
+              />
             </div>
           </div>
 
@@ -880,9 +990,15 @@ function ProductModal({ categories, brands, warehouses, unitTypes, product, onCl
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium mb-1">Unit</label>
-                <select value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
-                  {['pcs', 'sqft', 'bag', 'tin', 'set', 'box', 'kg', 'ltr', 'meter', 'coil', 'roll', 'carton'].map(u => <option key={u}>{u}</option>)}
-                </select>
+                <SearchableSelect
+                  value={form.unit}
+                  onChange={v => setForm({ ...form, unit: v })}
+                  placeholder="Select unit"
+                  options={unitTypes.length > 0
+                    ? unitTypes.map(u => ({ value: u.unit_name, label: u.unit_name + (u.unit_short && u.unit_short !== u.unit_name ? ` (${u.unit_short})` : '') }))
+                    : ['pcs','sqft','bag','tin','set','box','kg','ltr','meter','coil','roll','carton'].map(u => ({ value: u, label: u }))
+                  }
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">Cost Price *</label>
