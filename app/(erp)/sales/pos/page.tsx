@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet, Maximize2, Minimize2 } from 'lucide-react';
 import type { ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 
@@ -287,6 +287,29 @@ export default function POSPage() {
       const { error: itemsError } = await supabase.from('invoice_items').insert(invoiceItems);
       if (itemsError) throw itemsError;
 
+      // Record cost price history snapshot for each item at time of sale
+      const costHistoryRecords = cart.map(item => {
+        const unitName = item.selected_unit?.unit_name || 'pcs';
+        const costPerUnit = item.cost_price || 0;
+        const totalCostAdded = costPerUnit * item.quantity;
+        return {
+          product_id: item.id,
+          product_name: item.name,
+          product_sku: item.sku || '',
+          invoice_id: invoice.id,
+          unit: unitName,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          cost_price_per_qty: costPerUnit,
+          cost_price_for_added_qty: totalCostAdded,
+          total_cost_price_single: costPerUnit,
+          total_cost_price_added: totalCostAdded,
+        };
+      });
+      if (costHistoryRecords.length > 0) {
+        await supabase.from('cost_price_history').insert(costHistoryRecords);
+      }
+
       // Stock deduction is handled by the DB trigger on invoice_items INSERT
 
       // Record payment: if store credit is applied, record the cash/card portion separately
@@ -400,6 +423,7 @@ export default function POSPage() {
   ];
 
   const [showMobileCart, setShowMobileCart] = useState(false);
+  const [cartMaximized, setCartMaximized] = useState(false);
 
   return (
     <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-120px)] gap-4 animate-fade-in">
@@ -408,6 +432,13 @@ export default function POSPage() {
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
           onClick={() => setShowMobileCart(false)}
+        />
+      )}
+      {/* Maximized Cart Backdrop (desktop) */}
+      {cartMaximized && (
+        <div
+          className="fixed inset-0 bg-black/40 z-[90] hidden lg:block"
+          onClick={() => setCartMaximized(false)}
         />
       )}
 
@@ -632,15 +663,17 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Cart - Desktop Side Panel / Mobile Bottom Drawer */}
+      {/* Cart - Desktop Side Panel / Mobile Bottom Drawer / Maximized Overlay */}
       <div className={`
-        fixed lg:relative inset-x-0 bottom-0 lg:inset-auto
-        lg:w-80 flex flex-col bg-white
-        rounded-t-3xl lg:rounded-2xl border border-border shadow-sm overflow-hidden relative
+        ${cartMaximized ? 'fixed inset-0 z-[100] lg:inset-0' : 'fixed lg:relative inset-x-0 bottom-0 lg:inset-auto'}
+        ${cartMaximized ? 'w-full h-full lg:w-full lg:h-full' : 'lg:w-80'}
+        flex flex-col bg-white
+        ${cartMaximized ? 'rounded-none lg:rounded-none' : 'rounded-t-3xl lg:rounded-2xl'}
+        border border-border shadow-sm overflow-hidden relative
         z-50 lg:z-auto
         transition-transform duration-300 ease-out lg:transition-none
-        ${showMobileCart ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
-        h-[70vh] lg:h-auto lg:max-h-none
+        ${showMobileCart || cartMaximized ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
+        ${cartMaximized ? '' : 'h-[70vh] lg:h-auto lg:max-h-none'}
       `}>
         {/* Drag handle for mobile */}
         <div className="flex justify-center pt-2 pb-1 lg:hidden">
@@ -656,6 +689,13 @@ export default function POSPage() {
               <button onClick={() => setCart([])} className="text-xs text-red-500 hover:underline">Clear</button>
             )}
             <button
+              onClick={() => setCartMaximized(v => !v)}
+              className="hidden lg:flex text-muted-foreground hover:text-foreground p-1 transition"
+              title={cartMaximized ? 'Minimize cart' : 'Maximize cart'}
+            >
+              {cartMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
               onClick={() => setShowMobileCart(false)}
               className="lg:hidden text-muted-foreground hover:text-foreground p-1"
             >
@@ -664,7 +704,7 @@ export default function POSPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className={`flex-1 overflow-y-auto p-3 space-y-2 ${cartMaximized ? 'lg:max-w-3xl lg:mx-auto lg:w-full' : ''}`}>
           {cart.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-center py-12">
               <div>
