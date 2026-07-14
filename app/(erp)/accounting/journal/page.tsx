@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
 import { Plus, ChevronDown, ChevronRight, FileText, Receipt, CreditCard, Package, ArrowRightLeft, ShoppingBag, X, Trash2, Lightbulb, Banknote, Building2, Zap, Truck, Users, RotateCcw, Search, Filter, Pencil as Edit2, TriangleAlert as AlertTriangle, Info, User, Calendar, Link as LinkIcon } from 'lucide-react';
 import type { Account } from '@/lib/types';
+import AppPagination from '@/components/ui/AppPagination';
 
 interface JournalLine {
   id: string;
@@ -188,6 +189,9 @@ export default function JournalPage() {
   const [period, setPeriod] = useState<'today' | 'last7' | 'last30' | 'all'>('today');
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<JournalEntry | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
 
   useEffect(() => { loadData(); }, [period]);
 
@@ -253,6 +257,26 @@ export default function JournalPage() {
     }
     return true;
   });
+
+  // Detect duplicates: entries with same reference_type + reference_id appearing more than once
+  const duplicateRefIds = new Map<string, number>();
+  entries.forEach(e => {
+    if (e.reference_id && e.reference_type) {
+      const key = `${e.reference_type}:${e.reference_id}`;
+      duplicateRefIds.set(key, (duplicateRefIds.get(key) || 0) + 1);
+    }
+  });
+  const duplicateKeys = new Set(
+    Array.from(duplicateRefIds.entries()).filter(([, count]) => count > 1).map(([k]) => k)
+  );
+  const duplicateCount = entries.filter(e =>
+    e.reference_id && e.reference_type && duplicateKeys.has(`${e.reference_type}:${e.reference_id}`)
+  ).length;
+
+  const displayEntries = showDuplicatesOnly
+    ? filtered.filter(e => e.reference_id && e.reference_type && duplicateKeys.has(`${e.reference_type}:${e.reference_id}`))
+    : filtered;
+  const pagedEntries = displayEntries.slice((page - 1) * pageSize, page * pageSize);
 
   const autoCount = entries.filter(e => e.reference_type !== 'manual').length;
   const manualCount = entries.filter(e => e.reference_type === 'manual').length;
@@ -360,6 +384,15 @@ export default function JournalPage() {
             </button>
           ))}
           <span className="ml-auto text-xs text-muted-foreground self-center">{filtered.length} entries</span>
+          {duplicateCount > 0 && (
+            <button
+              onClick={() => { setShowDuplicatesOnly(!showDuplicatesOnly); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${showDuplicatesOnly ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {showDuplicatesOnly ? 'Showing Duplicates' : `${duplicateCount} Duplicates`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -397,11 +430,12 @@ export default function JournalPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((entry) => (
+              pagedEntries.map((entry) => (
                 <JournalEntryRow
                   key={entry.id}
                   entry={entry}
                   accounts={accounts}
+                  isDuplicate={!!(entry.reference_id && entry.reference_type && duplicateKeys.has(`${entry.reference_type}:${entry.reference_id}`))}
                   isExpanded={expandedId === entry.id}
                   onToggle={() => toggleExpand(entry.id)}
                   onEdit={() => setEditingEntry(entry)}
@@ -411,6 +445,13 @@ export default function JournalPage() {
             )}
           </tbody>
         </table>
+        <AppPagination
+          page={page}
+          pageSize={pageSize}
+          total={displayEntries.length}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+        />
       </div>
 
       {showModal && (
@@ -442,9 +483,10 @@ export default function JournalPage() {
   );
 }
 
-function JournalEntryRow({ entry, accounts, isExpanded, onToggle, onEdit, onDelete }: {
+function JournalEntryRow({ entry, accounts, isDuplicate, isExpanded, onToggle, onEdit, onDelete }: {
   entry: JournalEntry;
   accounts: Account[];
+  isDuplicate?: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -476,7 +518,14 @@ function JournalEntryRow({ entry, accounts, isExpanded, onToggle, onEdit, onDele
             {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
           </button>
         </td>
-        <td className="px-4 py-3 text-sm font-mono font-semibold text-blue-600">{entry.entry_number}</td>
+        <td className="px-4 py-3 text-sm font-mono font-semibold text-blue-600 flex items-center gap-1.5">
+          {entry.entry_number}
+          {isDuplicate && (
+            <span title="Duplicate entry — same reference has multiple journal entries" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-600 border border-red-200">
+              <AlertTriangle className="w-2.5 h-2.5" />DUP
+            </span>
+          )}
+        </td>
         <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{formatDate(entry.entry_date)}</td>
         <td className="px-4 py-3 text-sm text-foreground max-w-xs truncate">{entry.description}</td>
         <td className="px-4 py-3">
