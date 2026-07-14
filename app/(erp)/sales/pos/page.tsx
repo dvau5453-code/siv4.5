@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet, Maximize2, Minimize2 } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet, Maximize2, Minimize2, ArrowRight, ArrowLeft, Receipt, History } from 'lucide-react';
 import type { ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 
@@ -388,6 +388,9 @@ export default function POSPage() {
       setSelectedCustomer('');
       setStoreCreditBalance(0);
       setApplyStoreCredit(false);
+      setShowCheckout(false);
+      setAmountPaid('');
+      setCartTab('items');
       setOrderComplete(true);
       toast({ title: 'Success', description: `Order ${invoiceNumber} completed successfully` });
       loadProducts(search);
@@ -424,6 +427,9 @@ export default function POSPage() {
 
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [cartMaximized, setCartMaximized] = useState(false);
+  const [cartTab, setCartTab] = useState<'items' | 'cost'>('items');
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [amountPaid, setAmountPaid] = useState('');
 
   return (
     <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-120px)] gap-4 animate-fade-in">
@@ -665,12 +671,12 @@ export default function POSPage() {
 
       {/* Cart - Desktop Side Panel / Mobile Bottom Drawer / Maximized Overlay */}
       <div className={`
-        ${cartMaximized ? 'fixed inset-0 z-[100] lg:inset-0' : 'fixed lg:relative inset-x-0 bottom-0 lg:inset-auto'}
+        ${cartMaximized ? 'fixed inset-0 z-[100]' : 'fixed lg:relative inset-x-0 bottom-0 lg:inset-auto'}
         ${cartMaximized ? 'w-full h-full lg:w-full lg:h-full' : 'lg:w-80'}
         flex flex-col bg-white
         ${cartMaximized ? 'rounded-none lg:rounded-none' : 'rounded-t-3xl lg:rounded-2xl'}
         border border-border shadow-sm overflow-hidden relative
-        z-50 lg:z-auto
+        z-50
         transition-transform duration-300 ease-out lg:transition-none
         ${showMobileCart || cartMaximized ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
         ${cartMaximized ? '' : 'h-[70vh] lg:h-auto lg:max-h-none'}
@@ -704,6 +710,24 @@ export default function POSPage() {
           </div>
         </div>
 
+        {/* Cart tabs: Items | Cost Price History */}
+        {cart.length > 0 && (
+          <div className="flex border-b border-border">
+            <button
+              onClick={() => setCartTab('items')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition ${cartTab === 'items' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <ShoppingCart className="w-3.5 h-3.5" /> Items
+            </button>
+            <button
+              onClick={() => setCartTab('cost')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition ${cartTab === 'cost' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <History className="w-3.5 h-3.5" /> Cost Price
+            </button>
+          </div>
+        )}
+
         <div className={`flex-1 overflow-y-auto p-3 space-y-2 ${cartMaximized ? 'lg:max-w-3xl lg:mx-auto lg:w-full' : ''}`}>
           {cart.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-center py-12">
@@ -713,7 +737,8 @@ export default function POSPage() {
                 <p className="text-xs text-muted-foreground">Click products to add</p>
               </div>
             </div>
-          ) : cart.map(item => (
+          ) : cartTab === 'items' ? (
+            cart.map(item => (
             <div key={`${item.id}-${item.selected_unit?.id || 'default'}`} className="flex items-center gap-2 bg-muted/30 rounded-xl p-2">
               <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
                 {item.image_url ? <img src={item.image_url} alt="" className="w-full h-full object-cover" /> : <span className="text-base">?</span>}
@@ -740,7 +765,60 @@ export default function POSPage() {
               </div>
               <button onClick={() => removeFromCart(item.id, item.selected_unit?.id || undefined)} className="text-muted-foreground hover:text-red-500 transition"><X className="w-3.5 h-3.5" /></button>
             </div>
-          ))}
+            ))
+          ) : (
+            /* Cost Price History preview tab */
+            <div className="space-y-2">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[11px] text-blue-800">
+                Cost price snapshot that will be recorded when this sale is completed.
+              </div>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted/40">
+                    <tr>
+                      <th className="text-left text-[10px] font-semibold text-muted-foreground px-2 py-1.5">Product</th>
+                      <th className="text-right text-[10px] font-semibold text-muted-foreground px-2 py-1.5">Qty</th>
+                      <th className="text-right text-[10px] font-semibold text-muted-foreground px-2 py-1.5">Cost/Unit</th>
+                      <th className="text-right text-[10px] font-semibold text-muted-foreground px-2 py-1.5">Total Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {cart.map((item, i) => {
+                      const costPerUnit = item.cost_price || 0;
+                      const totalCost = costPerUnit * item.quantity;
+                      return (
+                        <tr key={i} className="hover:bg-muted/20">
+                          <td className="px-2 py-1.5">
+                            <p className="text-[11px] font-medium text-foreground truncate max-w-[100px]">{item.name}</p>
+                            <p className="text-[9px] text-muted-foreground">{item.selected_unit?.unit_name || 'pcs'}</p>
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-[11px] text-foreground">{item.quantity}</td>
+                          <td className="px-2 py-1.5 text-right text-[11px] text-foreground">{formatCurrency(costPerUnit)}</td>
+                          <td className="px-2 py-1.5 text-right text-[11px] font-semibold text-foreground">{formatCurrency(totalCost)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-muted/30">
+                    <tr>
+                      <td colSpan={3} className="px-2 py-1.5 text-right text-[10px] font-semibold text-muted-foreground">Total Cost:</td>
+                      <td className="px-2 py-1.5 text-right text-[11px] font-bold text-foreground">
+                        {formatCurrency(cart.reduce((s, item) => s + (item.cost_price || 0) * item.quantity, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div className="flex justify-between text-[11px] pt-1">
+                <span className="text-muted-foreground">Selling Total:</span>
+                <span className="font-bold text-foreground">{formatCurrency(total)}</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-muted-foreground">Profit (est.):</span>
+                <span className="font-bold text-green-600">{formatCurrency(total - cart.reduce((s, item) => s + (item.cost_price || 0) * item.quantity, 0))}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {cart.length > 0 && (
@@ -756,60 +834,13 @@ export default function POSPage() {
               <div className="flex justify-between font-bold text-base text-foreground pt-1 border-t border-border"><span>Total</span><span>{formatCurrency(total)}</span></div>
             </div>
 
-            {/* Store Credit */}
-            {storeCreditBalance > 0 && selectedCustomer !== WALK_IN_CUSTOMER_ID && (
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setApplyStoreCredit(!applyStoreCredit)}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border-2 transition text-xs font-medium ${
-                    applyStoreCredit ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-border text-muted-foreground hover:border-purple-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Wallet className="w-3.5 h-3.5" />
-                    <span>Store Credit Available</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold">{formatCurrency(storeCreditBalance)}</span>
-                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${applyStoreCredit ? 'bg-purple-500 border-purple-500' : 'border-muted-foreground'}`}>
-                      {applyStoreCredit && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
-                    </div>
-                  </div>
-                </button>
-                {applyStoreCredit && (
-                  <div className="p-2 bg-purple-50 rounded-lg space-y-1 text-xs">
-                    <div className="flex justify-between text-purple-700">
-                      <span>Credit Applied</span>
-                      <span className="font-bold">-{formatCurrency(Math.min(storeCreditBalance, total))}</span>
-                    </div>
-                    <div className="flex justify-between text-purple-600">
-                      <span>Remaining to Pay</span>
-                      <span className="font-bold">{formatCurrency(Math.max(0, total - Math.min(storeCreditBalance, total)))}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-1.5">
-              {displayMethods.map(m => {
-                const Icon = paymentMethodIcons[m.code] || Banknote;
-                const color = paymentMethodColors[m.code] || 'text-gray-600 bg-gray-50 border-gray-200';
-                return (
-                  <button key={m.code} onClick={() => setPaymentMethod(m.code)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border-2 text-xs font-medium transition ${paymentMethod === m.code ? color + ' border-current' : 'border-border text-muted-foreground hover:border-blue-200'}`}>
-                    <Icon className="w-3 h-3" />{m.name}
-                  </button>
-                );
-              })}
-            </div>
-
             <button
-              onClick={processOrder}
+              onClick={() => setShowCheckout(true)}
               disabled={processing || !selectedCustomer}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition disabled:opacity-60 text-sm"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition disabled:opacity-60 text-sm flex items-center justify-center gap-2"
             >
-              {processing ? 'Processing...' : `Charge ${formatCurrency(total)}`}
+              <Receipt className="w-4 h-4" />
+              {processing ? 'Processing...' : `Checkout · ${formatCurrency(total)}`}
             </button>
           </div>
         )}
@@ -825,6 +856,31 @@ export default function POSPage() {
           </div>
         )}
       </div>
+
+      {/* Checkout Modal */}
+      {showCheckout && (
+        <CheckoutModal
+          total={total}
+          subtotal={subtotal}
+          discount={discount}
+          discountAmount={discountAmount}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
+          displayMethods={displayMethods}
+          paymentMethodIcons={paymentMethodIcons}
+          paymentMethodColors={paymentMethodColors}
+          amountPaid={amountPaid}
+          setAmountPaid={setAmountPaid}
+          processing={processing}
+          onConfirm={processOrder}
+          onClose={() => setShowCheckout(false)}
+          storeCreditBalance={storeCreditBalance}
+          applyStoreCredit={applyStoreCredit}
+          setApplyStoreCredit={setApplyStoreCredit}
+          selectedCustomer={selectedCustomer}
+          cart={cart}
+        />
+      )}
 
       {showScanner && (
         <BarcodeScannerModal
@@ -1102,6 +1158,169 @@ function AddCustomerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50">{saving ? 'Saving...' : 'Add Customer'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutModal({
+  total, subtotal, discount, discountAmount, paymentMethod, setPaymentMethod,
+  displayMethods, paymentMethodIcons, paymentMethodColors,
+  amountPaid, setAmountPaid, processing, onConfirm, onClose,
+  storeCreditBalance, applyStoreCredit, setApplyStoreCredit, selectedCustomer, cart,
+}: {
+  total: number; subtotal: number; discount: number; discountAmount: number;
+  paymentMethod: string; setPaymentMethod: (m: string) => void;
+  displayMethods: any[]; paymentMethodIcons: Record<string, any>; paymentMethodColors: Record<string, string>;
+  amountPaid: string; setAmountPaid: (v: string) => void;
+  processing: boolean; onConfirm: () => void; onClose: () => void;
+  storeCreditBalance: number; applyStoreCredit: boolean; setApplyStoreCredit: (v: boolean) => void;
+  selectedCustomer: any; cart: any[];
+}) {
+  const [step, setStep] = useState<'method' | 'confirm'>('method');
+  const paid = parseFloat(amountPaid) || 0;
+  const change = paid - total;
+  const totalCost = cart.reduce((s, item) => s + (item.cost_price || 0) * item.quantity, 0);
+  const profit = total - totalCost;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <h2 className="text-base font-bold flex items-center gap-2">
+            {step === 'method' ? <><CreditCard className="w-4 h-4" /> Select Payment Method</> : <><Receipt className="w-4 h-4" /> Confirm Charge</>}
+          </h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-4 overflow-y-auto">
+          {/* Order summary */}
+          <div className="bg-muted/30 rounded-xl p-3 space-y-1.5 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-red-600"><span>Discount ({discount}%)</span><span>-{formatCurrency(discountAmount)}</span></div>
+            )}
+            <div className="flex justify-between text-base font-bold pt-1 border-t border-border"><span>Total Due</span><span className="text-blue-600">{formatCurrency(total)}</span></div>
+          </div>
+
+          {step === 'method' ? (
+            <>
+              {/* Payment method grid */}
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-2">PAYMENT METHOD</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {displayMethods.map(m => {
+                    const Icon = paymentMethodIcons[m.code] || Banknote;
+                    const color = paymentMethodColors[m.code] || 'text-gray-600 bg-gray-50 border-gray-200';
+                    const selected = paymentMethod === m.code;
+                    return (
+                      <button
+                        key={m.code}
+                        onClick={() => setPaymentMethod(m.code)}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition ${selected ? color + ' border-current ring-2 ring-current/10' : 'border-border text-muted-foreground hover:border-blue-200 hover:bg-muted/30'}`}
+                      >
+                        <Icon className="w-4 h-4" />{m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Store credit option */}
+              {storeCreditBalance > 0 && selectedCustomer && (
+                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-amber-800">Apply Store Credit</p>
+                    <p className="text-[11px] text-amber-700">Balance: {formatCurrency(storeCreditBalance)}</p>
+                  </div>
+                  <button
+                    onClick={() => setApplyStoreCredit(!applyStoreCredit)}
+                    className={`w-10 h-5 rounded-full transition relative ${applyStoreCredit ? 'bg-amber-500' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${applyStoreCredit ? 'left-5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+              )}
+
+              {/* Amount paid input */}
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">AMOUNT PAID</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amountPaid}
+                  onChange={e => setAmountPaid(e.target.value)}
+                  placeholder={total.toFixed(2)}
+                  className="w-full border border-border rounded-lg px-3 py-2.5 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                {paid > 0 && (
+                  <p className={`text-xs mt-1 ${change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {change >= 0 ? `Change: ${formatCurrency(change)}` : `Remaining: ${formatCurrency(-change)}`}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            /* Confirmation step */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const Icon = paymentMethodIcons[paymentMethod] || Banknote;
+                    return <Icon className="w-5 h-5 text-blue-600" />;
+                  })()}
+                  <span className="text-sm font-semibold">{displayMethods.find(m => m.code === paymentMethod)?.name || paymentMethod}</span>
+                </div>
+                <button onClick={() => setStep('method')} className="text-xs text-blue-600 hover:underline">Change</button>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span className="font-medium truncate max-w-[180px]">{selectedCustomer?.name || 'Walk-in'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Items</span><span className="font-medium">{cart.length}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Amount Paid</span><span className="font-medium">{formatCurrency(paid || total)}</span></div>
+                {paid > 0 && change >= 0 && <div className="flex justify-between"><span className="text-muted-foreground">Change</span><span className="font-medium text-green-600">{formatCurrency(change)}</span></div>}
+                {applyStoreCredit && storeCreditBalance > 0 && <div className="flex justify-between text-amber-700"><span>Store Credit Applied</span><span className="font-medium">{formatCurrency(Math.min(storeCreditBalance, total))}</span></div>}
+              </div>
+
+              <div className="bg-muted/30 rounded-xl p-3 space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Cost Price (total)</span><span>{formatCurrency(totalCost)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Est. Profit</span><span className="text-green-600">{formatCurrency(profit)}</span></div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-border flex gap-2 shrink-0">
+          {step === 'method' ? (
+            <>
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition">Cancel</button>
+              <button
+                onClick={() => setStep('confirm')}
+                disabled={!paymentMethod}
+                className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                Next <ArrowRight className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStep('method')} className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition flex items-center justify-center gap-1.5">
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={processing}
+                className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" /> {processing ? 'Processing...' : `Charge ${formatCurrency(total)}`}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
