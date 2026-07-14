@@ -228,11 +228,11 @@ export default function AccountingPage() {
   const operatingExpenses = expenses
     .filter(a => !CONTRA_REVENUE_CODES.has(a.code))
     .reduce((s, a) => s + Number(a.balance), 0);
-  // COGS account balance can be negative if credits > debits (reversals). Use absolute net debit.
+  // COGS account balance can be negative if reversal credits exceed original debits. Use max(0, balance) for display.
   const cogsBalance = expenses.filter(a => a.code === '5000').reduce((s, a) => s + Number(a.balance), 0);
   const salesReturnsBalance = expenses.filter(a => a.code === '4050').reduce((s, a) => s + Number(a.balance), 0);
-  // Gross profit: revenue minus COGS (use absolute value — positive balance = cost incurred)
-  const grossProfit = netRevenue - Math.max(0, salesReturnsBalance) - Math.abs(cogsBalance);
+  // Gross profit: revenue minus COGS (use max(0, balance) — positive balance = cost incurred)
+  const grossProfit = netRevenue - Math.max(0, salesReturnsBalance) - Math.max(0, cogsBalance);
   const netProfit = grossProfit - Math.max(0, operatingExpenses);
 
   useEffect(() => {

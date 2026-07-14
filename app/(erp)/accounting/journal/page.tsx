@@ -258,23 +258,35 @@ export default function JournalPage() {
     return true;
   });
 
-  // Detect duplicates: entries with same reference_type + reference_id appearing more than once
-  const duplicateRefIds = new Map<string, number>();
+  // Detect true duplicates: same reference_type + reference_id + same description category
+  // It's normal for one invoice to have both "Accounts Receivable" and "COGS" entries.
+  // A true duplicate is when the same entry type appears more than once for the same reference.
+  const duplicateKeys = new Set<string>();
+  const entryGroups = new Map<string, number>();
   entries.forEach(e => {
     if (e.reference_id && e.reference_type) {
-      const key = `${e.reference_type}:${e.reference_id}`;
-      duplicateRefIds.set(key, (duplicateRefIds.get(key) || 0) + 1);
+      // Extract the entry category from the description (e.g., "COGS", "Accounts Receivable", "Payment")
+      const category = e.description?.split(' - ')[0]?.trim() || e.description?.split(' ')[0]?.trim() || 'unknown';
+      const key = `${e.reference_type}:${e.reference_id}:${category}`;
+      entryGroups.set(key, (entryGroups.get(key) || 0) + 1);
     }
   });
-  const duplicateKeys = new Set(
-    Array.from(duplicateRefIds.entries()).filter(([, count]) => count > 1).map(([k]) => k)
-  );
-  const duplicateCount = entries.filter(e =>
-    e.reference_id && e.reference_type && duplicateKeys.has(`${e.reference_type}:${e.reference_id}`)
-  ).length;
+  // Only flag entries where the same category appears more than once for the same reference
+  entryGroups.forEach((count, key) => {
+    if (count > 1) duplicateKeys.add(key);
+  });
+  const duplicateCount = entries.filter(e => {
+    if (!e.reference_id || !e.reference_type) return false;
+    const category = e.description?.split(' - ')[0]?.trim() || e.description?.split(' ')[0]?.trim() || 'unknown';
+    return duplicateKeys.has(`${e.reference_type}:${e.reference_id}:${category}`);
+  }).length;
 
   const displayEntries = showDuplicatesOnly
-    ? filtered.filter(e => e.reference_id && e.reference_type && duplicateKeys.has(`${e.reference_type}:${e.reference_id}`))
+    ? filtered.filter(e => {
+        if (!e.reference_id || !e.reference_type) return false;
+        const category = e.description?.split(' - ')[0]?.trim() || e.description?.split(' ')[0]?.trim() || 'unknown';
+        return duplicateKeys.has(`${e.reference_type}:${e.reference_id}:${category}`);
+      })
     : filtered;
   const pagedEntries = displayEntries.slice((page - 1) * pageSize, page * pageSize);
 
@@ -435,7 +447,10 @@ export default function JournalPage() {
                   key={entry.id}
                   entry={entry}
                   accounts={accounts}
-                  isDuplicate={!!(entry.reference_id && entry.reference_type && duplicateKeys.has(`${entry.reference_type}:${entry.reference_id}`))}
+                  isDuplicate={!!(entry.reference_id && entry.reference_type && (() => {
+                    const category = entry.description?.split(' - ')[0]?.trim() || entry.description?.split(' ')[0]?.trim() || 'unknown';
+                    return duplicateKeys.has(`${entry.reference_type}:${entry.reference_id}:${category}`);
+                  })())}
                   isExpanded={expandedId === entry.id}
                   onToggle={() => toggleExpand(entry.id)}
                   onEdit={() => setEditingEntry(entry)}

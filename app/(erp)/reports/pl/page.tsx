@@ -107,9 +107,9 @@ export default function PLPage() {
     const returnsAccount = allAccounts.find(a => a.code === '4050');
     const salesReturns = returnsAccount ? Math.max(0, await periodNetDebit(returnsAccount.id)) : 0;
 
-    // COGS (code 5000) — net can be negative if trigger credits COGS on sale; use absolute value
+    // COGS (code 5000) — expense account, positive balance = cost incurred
     const cogsAccount = allAccounts.find(a => a.code === '5000');
-    const costOfGoodsSold = cogsAccount ? Math.abs(await periodNetDebit(cogsAccount.id)) : 0;
+    const costOfGoodsSold = cogsAccount ? Math.max(0, await periodNetDebit(cogsAccount.id)) : 0;
 
     // Service revenue (revenue accounts other than 4000 and 4100 if desired)
     let serviceRevenue = 0;

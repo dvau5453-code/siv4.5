@@ -163,11 +163,12 @@ export default function SalesPage() {
     if (settingsRes.data?.setting_value) setCompanySettings(settingsRes.data.setting_value);
 
     const allInv = invoicesWithReturns;
-    const totalRefunded = allInv.reduce((s: number, i: any) => {
+    const activeInv = allInv.filter((i: any) => i.status !== 'cancelled' && i.status !== 'draft');
+    const totalRefunded = activeInv.reduce((s: number, i: any) => {
       const refunds = (i.sales_returns || []).reduce((rs: number, r: any) => rs + Number(r.total_refund_amount), 0);
       return s + refunds;
     }, 0);
-    const totalCollected = allInv.reduce((s: number, i: any) => s + Number(i.amount_paid), 0);
+    const totalCollected = activeInv.reduce((s: number, i: any) => s + Number(i.amount_paid), 0);
 
     // Fetch store credit balance (not period-dependent)
     const { data: creditData } = await supabase
@@ -177,12 +178,12 @@ export default function SalesPage() {
     const storeCreditBalance = (creditData || []).reduce((s: number, c: any) => s + Number(c.balance), 0);
 
     setStats({
-      total: allInv.reduce((s: number, i: any) => s + Number(i.total_amount), 0),
+      total: activeInv.reduce((s: number, i: any) => s + Number(i.total_amount), 0),
       paid: totalCollected,
       refunded: totalRefunded,
       netCollected: totalCollected - totalRefunded,
-      outstanding: allInv.reduce((s: number, i: any) => s + Number(i.balance_due || 0), 0),
-      overdue: allInv.filter((i: any) => i.status === 'overdue').length,
+      outstanding: activeInv.reduce((s: number, i: any) => s + Number(i.balance_due || 0), 0),
+      overdue: activeInv.filter((i: any) => i.status === 'overdue').length,
       storeCreditBalance,
     });
     setLoading(false);
