@@ -1167,7 +1167,7 @@ function ViewQuotationModal({ quotation, items, onClose, onConvert, companySetti
               <Mail className="w-3.5 h-3.5" />Email
             </button>
             <button onClick={() => printNode(printRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition">
-              <Printer className="w-3.5 h-3.5" />Print / PDF
+              <Printer className="w-3.5 h-3.5" />Print
             </button>
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
           </div>

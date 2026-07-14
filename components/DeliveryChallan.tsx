@@ -76,7 +76,7 @@ export default function DeliveryChallan({
           .print-items-table tr { page-break-inside: avoid; break-inside: avoid; page-break-after: auto; }
           .print-footer-section { page-break-inside: avoid; break-inside: avoid; }
           .print-header-logo { height: 52px !important; }
-          .print-header-section { padding: 6px 14px !important; }
+          .print-header-section { padding: 8px 16px !important; }
           .print-items-table td, .print-items-table th { padding-top: 3px !important; padding-bottom: 3px !important; }
         }
       `}</style>
@@ -91,7 +91,7 @@ export default function DeliveryChallan({
           margin: '0 auto',
           border: '1px solid #dde3ef',
           borderRadius: '4px',
-          overflow: 'hidden',
+          overflow: 'visible',
           boxSizing: 'border-box',
         }}
       >
@@ -101,10 +101,10 @@ export default function DeliveryChallan({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '14px 24px',
+            padding: '10px 20px',
             borderBottom: `3px solid ${PRIMARY}`,
             background: '#fff',
-            gap: '16px',
+            gap: '14px',
           }}
         >
           {/* Logo */}
@@ -116,7 +116,7 @@ export default function DeliveryChallan({
               style={{
                 height: '72px',
                 width: 'auto',
-                maxWidth: '340px',
+                maxWidth: '380px',
                 objectFit: 'contain',
                 display: 'block',
               }}
@@ -367,6 +367,21 @@ export default function DeliveryChallan({
                 );
               })
             )}
+
+            {/* Filler rows to fill the A4 page professionally */}
+            {Array.from({ length: Math.max(0, 10 - items.length) }).map((_, idx) => (
+              <tr
+                key={`filler-${idx}`}
+                style={{
+                  background: (items.length + idx) % 2 === 0 ? '#fff' : '#f5f8ff',
+                  borderBottom: '1px solid #e8edf6',
+                }}
+              >
+                {Array.from({ length: 5 }).map((_, colIdx) => (
+                  <td key={colIdx} style={{ padding: '9px 10px', fontSize: '12px', height: '24px' }}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
 
             {/* Total row */}
             <tr style={{ background: PRIMARY }}>

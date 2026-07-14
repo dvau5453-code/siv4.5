@@ -347,7 +347,7 @@ export default function DeliveryPage() {
               <span className="text-sm font-semibold text-muted-foreground">Delivery Challan Preview</span>
               <div className="flex items-center gap-2">
                 <button onClick={() => printNode(challanPrintRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
-                  <Printer className="w-3.5 h-3.5" />Print / PDF
+                  <Printer className="w-3.5 h-3.5" />Print
                 </button>
                 <button onClick={() => setChallanDelivery(null)} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
               </div>

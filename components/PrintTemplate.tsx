@@ -164,7 +164,7 @@ export default function PrintTemplate({
             overflow: visible !important;
           }
           .print-header-logo {
-            height: 60px !important;
+            height: 52px !important;
           }
           .print-header-section {
             padding: 8px 16px !important;
@@ -190,7 +190,7 @@ export default function PrintTemplate({
             break-inside: avoid;
           }
           /* Compact print overrides to fit on one A4 page */
-          .print-document img.print-header-logo { height: 54px !important; }
+          .print-document img.print-header-logo { height: 52px !important; }
           .print-info-section td { padding-bottom: 1px !important; }
           .print-items-table td, .print-items-table th { padding-top: 2px !important; padding-bottom: 2px !important; }
         }
@@ -216,7 +216,7 @@ export default function PrintTemplate({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '8px 20px',
+            padding: '10px 20px',
             borderBottom: `3px solid ${PRIMARY}`,
             background: '#fff',
             gap: '14px',
@@ -229,9 +229,9 @@ export default function PrintTemplate({
               alt="SI Building Solutions"
               className="print-header-logo"
               style={{
-                height: '80px',
+                height: '72px',
                 width: 'auto',
-                maxWidth: '400px',
+                maxWidth: '380px',
                 objectFit: 'contain',
                 display: 'block',
               }}
@@ -260,11 +260,11 @@ export default function PrintTemplate({
           >
             <div
               style={{
-                fontSize: '30px',
+                fontSize: '28px',
                 fontWeight: '900',
                 color: PRIMARY,
                 letterSpacing: '2px',
-                lineHeight: '1',
+                lineHeight: '1.1',
               }}
             >
               {docType}
@@ -549,6 +549,21 @@ export default function PrintTemplate({
                 </tr>
               ))
             )}
+
+            {/* Filler rows to fill the A4 page professionally */}
+            {Array.from({ length: Math.max(0, 10 - items.length) }).map((_, idx) => (
+              <tr
+                key={`filler-${idx}`}
+                style={{
+                  background: (items.length + idx) % 2 === 0 ? '#fff' : '#f5f8ff',
+                  borderBottom: '1px solid #e8edf6',
+                }}
+              >
+                {Array.from({ length: 8 }).map((_, colIdx) => (
+                  <td key={colIdx} style={{ padding: '3px 8px', fontSize: '11px', height: '20px' }}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
 
           </tbody>
         </table>

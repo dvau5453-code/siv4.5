@@ -288,7 +288,7 @@ export default function SalesPage() {
                 </button>
               )}
               <button onClick={() => printNode(printRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
-                <Printer className="w-3.5 h-3.5" />Print / PDF
+                <Printer className="w-3.5 h-3.5" />Print
               </button>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
             </div>
@@ -374,7 +374,7 @@ export default function SalesPage() {
           </div>
           ) : viewTab === 'cost-history' ? (
           <div className="p-6">
-            <CostPriceHistoryTab items={items} />
+            <CostPriceHistoryTab items={items} invoiceId={invoice.id} />
           </div>
           ) : (
           <div className="p-6">
@@ -1919,7 +1919,7 @@ function DeliveryChallanModal({ data, companySettings, onClose }: {
           <span className="text-sm font-semibold text-muted-foreground">Delivery Challan Preview</span>
           <div className="flex items-center gap-2">
             <button onClick={() => printNode(printRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
-              <Printer className="w-3.5 h-3.5" />Print / PDF
+              <Printer className="w-3.5 h-3.5" />Print
             </button>
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
           </div>
@@ -2259,60 +2259,82 @@ function CancelInvoiceModal({ invoice, onClose, onDone }: { invoice: any; onClos
   );
 }
 
-function CostPriceHistoryTab({ items }: { items: any[] }) {
+function CostPriceHistoryTab({ items, invoiceId }: { items: any[]; invoiceId: string }) {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const productIds = items.map((i: any) => i.product_id).filter(Boolean);
-    if (productIds.length === 0) {
-      setLoading(false);
-      return;
-    }
     supabase
       .from('cost_price_history')
-      .select('*, product:products(id, name, sku)')
-      .in('product_id', productIds)
+      .select('*')
+      .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         setHistory(data || []);
         setLoading(false);
       });
-  }, [items]);
+  }, [invoiceId]);
 
   if (loading) {
     return <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>;
   }
 
   if (history.length === 0) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">No cost price history recorded for the products in this invoice.</div>;
+    return (
+      <div className="space-y-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+          This tab shows the cost price of each product in this invoice at the time of sale, as recorded permanently in the cost price history.
+        </div>
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-sm">No cost price history was recorded for this invoice.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold mb-3">Cost Price History</h3>
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
+    <div className="space-y-3">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+        This tab shows the cost price of each product in this invoice at the time of sale, as recorded permanently in the cost price history.
+      </div>
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-muted/40">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">Product</th>
-              <th className="text-left px-3 py-2 font-medium">SKU</th>
-              <th className="text-right px-3 py-2 font-medium">Old Cost</th>
-              <th className="text-right px-3 py-2 font-medium">New Cost</th>
-              <th className="text-left px-3 py-2 font-medium">Date</th>
+              <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Product</th>
+              <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Unit</th>
+              <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Qty</th>
+              <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Cost / 1 Qty</th>
+              <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Total Cost (Single)</th>
+              <th className="text-right text-xs font-semibold text-muted-foreground px-3 py-2">Total Cost (Added Qty)</th>
+              <th className="text-left text-xs font-semibold text-muted-foreground px-3 py-2">Recorded At</th>
             </tr>
           </thead>
-          <tbody>
-            {history.map((h: any) => (
-              <tr key={h.id} className="border-t">
-                <td className="px-3 py-2">{h.product?.name || '—'}</td>
-                <td className="px-3 py-2 text-muted-foreground">{h.product?.sku || '—'}</td>
-                <td className="px-3 py-2 text-right">{formatCurrency(h.old_cost_price)}</td>
-                <td className="px-3 py-2 text-right font-medium">{formatCurrency(h.new_cost_price)}</td>
-                <td className="px-3 py-2 text-muted-foreground">{formatDate(h.created_at)}</td>
+          <tbody className="divide-y divide-border">
+            {history.map((h: any, index: number) => (
+              <tr key={h.id || index} className="hover:bg-muted/20">
+                <td className="px-3 py-2">
+                  <p className="text-sm font-medium text-foreground">{h.product_name || '—'}</p>
+                  <p className="text-[10px] text-muted-foreground">{h.product_sku}</p>
+                </td>
+                <td className="px-3 py-2 text-sm text-foreground">{h.unit || 'pcs'}</td>
+                <td className="px-3 py-2 text-right text-sm text-foreground">{h.quantity}</td>
+                <td className="px-3 py-2 text-right text-sm text-foreground">{formatCurrency(h.cost_price_per_qty)}</td>
+                <td className="px-3 py-2 text-right text-sm text-foreground">{formatCurrency(h.total_cost_price_single)}</td>
+                <td className="px-3 py-2 text-right text-sm font-semibold text-foreground">{formatCurrency(h.total_cost_price_added)}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{h.recorded_at ? new Date(h.recorded_at).toLocaleString() : '—'}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot className="bg-muted/30">
+            <tr>
+              <td colSpan={5} className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Total Cost:</td>
+              <td className="px-3 py-2 text-right text-sm font-bold text-foreground">
+                {formatCurrency(history.reduce((s, h) => s + Number(h.total_cost_price_added || 0), 0))}
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
