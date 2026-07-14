@@ -282,7 +282,10 @@ export default function SalesPage() {
                   <Ban className="w-3.5 h-3.5" />Cancel
                 </button>
               )}
-              <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
+              <button onClick={() => {
+    console.count("PRINT");
+    window.print();
+  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
                 <Printer className="w-3.5 h-3.5" />Print / PDF
               </button>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
