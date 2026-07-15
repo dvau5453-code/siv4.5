@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet, Maximize2, Minimize2, ArrowRight, ArrowLeft, Receipt, History } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, CircleCheck as CheckCircle2, X, Camera, UserPlus, Filter, Wallet, Maximize2, Minimize2, ArrowRight, ArrowLeft, Receipt, History, Eye, EyeOff, ImagePlus, Package, Check } from 'lucide-react';
 import type { ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 
@@ -49,7 +49,7 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER_ID);
   const [customers, setCustomers] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentMethods, setPaymentMethods] = useState<{ code: string; name: string }[]>([]);
@@ -81,6 +81,10 @@ export default function POSPage() {
       .then(({ data }) => setBrands(data || []));
     supabase.from('categories').select('id, name').eq('is_active', true).order('name')
       .then(({ data }) => setCategories(data || []));
+    supabase.from('app_settings').select('setting_value').eq('setting_key', 'product_defaults').maybeSingle()
+      .then(({ data }) => {
+        if (data?.setting_value?.default_image_url) setDefaultProductImage(data.setting_value.default_image_url);
+      });
   }, []);
 
   // Load store credit balance when customer changes
@@ -136,7 +140,7 @@ export default function POSPage() {
   async function loadCustomers() {
     const { data } = await supabase
       .from('customers')
-      .select('id, name, code')
+      .select('id, name, code, phone')
       .eq('is_active', true)
       .limit(100);
     setCustomers(data || []);
@@ -430,6 +434,21 @@ export default function POSPage() {
   const [cartTab, setCartTab] = useState<'items' | 'cost'>('items');
   const [showCheckout, setShowCheckout] = useState(false);
   const [amountPaid, setAmountPaid] = useState('');
+  const [defaultProductImage, setDefaultProductImage] = useState('');
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageModalProduct, setImageModalProduct] = useState<ProductData | null>(null);
+  const [imageModalUrl, setImageModalUrl] = useState('');
+  const [imageModalIsDefault, setImageModalIsDefault] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [showCostPrice, setShowCostPrice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!customerDropdownOpen) return;
+    const handler = () => setCustomerDropdownOpen(false);
+    setTimeout(() => window.addEventListener('click', handler), 0);
+    return () => window.removeEventListener('click', handler);
+  }, [customerDropdownOpen]);
 
   return (
     <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-120px)] gap-4 animate-fade-in">
@@ -605,11 +624,66 @@ export default function POSPage() {
               )}
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <select value={selectedCustomer} onChange={e => setSelectedCustomer(e.target.value)} className="flex-1 sm:flex-none border border-border rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none sm:min-w-[160px]">
-              <option value="">Select Customer</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-            </select>
+          <div className="flex items-center gap-2 relative">
+            {/* Searchable Customer Selector */}
+            <div className="flex-1 sm:flex-none relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setCustomerDropdownOpen(!customerDropdownOpen); }}
+                className="flex items-center gap-2 border border-border rounded-xl px-3 py-2.5 text-sm bg-white hover:bg-muted/50 transition sm:min-w-[200px] w-full"
+              >
+                <span className="text-muted-foreground shrink-0"><UserPlus className="w-3.5 h-3.5" /></span>
+                <span className="flex-1 text-left truncate">
+                  {selectedCustomer
+                    ? (customers.find(c => c.id === selectedCustomer)?.name || 'Walk-in Customer')
+                    : 'Select Customer'}
+                </span>
+                <span className="text-xs text-muted-foreground shrink-0">▾</span>
+              </button>
+              {customerDropdownOpen && (
+                <div className="absolute top-full mt-1 left-0 right-0 sm:w-72 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-2 border-b border-border">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={customerSearch}
+                        onChange={e => setCustomerSearch(e.target.value)}
+                        placeholder="Search customers..."
+                        autoFocus
+                        className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedCustomer(WALK_IN_CUSTOMER_ID); setCustomerDropdownOpen(false); setCustomerSearch(''); }}
+                      className={`w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 transition text-left ${selectedCustomer === WALK_IN_CUSTOMER_ID ? 'bg-blue-50 text-blue-600' : 'text-foreground'}`}
+                    >
+                      <span>Walk-in Customer</span>
+                      <span className="text-[10px] text-muted-foreground">CUST-272756</span>
+                    </button>
+                    {(customerSearch.trim()
+                      ? customers.filter(c => c.name.toLowerCase().includes(customerSearch.trim().toLowerCase()) || (c.code || '').toLowerCase().includes(customerSearch.trim().toLowerCase()) || (c.phone || '').includes(customerSearch.trim()))
+                      : customers
+                    ).map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { setSelectedCustomer(c.id); setCustomerDropdownOpen(false); setCustomerSearch(''); }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 transition text-left ${selectedCustomer === c.id ? 'bg-blue-50 text-blue-600' : 'text-foreground'}`}
+                      >
+                        <span className="truncate">{c.name}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{c.code}</span>
+                      </button>
+                    ))}
+                    {customerSearch.trim() && customers.filter(c => c.name.toLowerCase().includes(customerSearch.trim().toLowerCase())).length === 0 && (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">No customers found</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setShowAddCustomer(true)}
               title="Add New Customer"
@@ -640,30 +714,63 @@ export default function POSPage() {
             const available = stock - cartQty;
 
             return (
-              <button
+              <div
                 key={p.id}
-                onClick={() => handleProductClick(p)}
-                disabled={available <= 0}
-                className="bg-white rounded-xl border border-border p-3 text-left hover:border-blue-400 hover:shadow-md transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative"
+                className="bg-white rounded-xl border border-border p-3 text-left hover:border-blue-400 hover:shadow-md transition-all group relative"
               >
-                {multiUnit && (
-                  <span className="absolute top-2 right-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Multi-unit</span>
-                )}
-                <div className="w-full h-20 bg-muted rounded-lg overflow-hidden mb-2">
-                  {p.image_url ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-2xl">?</div>}
-                </div>
-                <p className="text-xs font-semibold text-foreground leading-tight mb-0.5 line-clamp-2">{p.name}</p>
-                <p className="text-[10px] text-muted-foreground mb-1">{p.sku}</p>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-blue-600">{formatCurrency(displayPrice)}</p>
-                    {multiUnit && saleUnit && (
-                      <p className="text-[9px] text-muted-foreground">per {saleUnit.unit_name}</p>
-                    )}
+                {/* Image change button (top-right, appears on hover) */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setImageModalProduct(p); setImageModalUrl(p.image_url || ''); setImageModalIsDefault(false); setShowImageModal(true); }}
+                  className="absolute top-1.5 right-1.5 z-20 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-muted-foreground hover:text-blue-600 hover:bg-blue-50 shadow-sm opacity-0 group-hover:opacity-100 transition"
+                  title="Change product image"
+                >
+                  <ImagePlus className="w-3.5 h-3.5" />
+                </button>
+
+                <div onClick={() => available > 0 && handleProductClick(p)} className={available <= 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}>
+                  {multiUnit && (
+                    <span className="absolute top-2 left-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium z-10">Multi-unit</span>
+                  )}
+                  <div className="w-full h-20 bg-muted rounded-lg overflow-hidden mb-2 relative">
+                    {p.image_url || defaultProductImage ? (
+                      <img
+                        src={p.image_url || defaultProductImage}
+                        alt={p.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden'); }}
+                      />
+                    ) : null}
+                    {(!p.image_url && !defaultProductImage) || true ? (
+                      <div className={`w-full h-full flex items-center justify-center text-muted-foreground ${(p.image_url || defaultProductImage) ? 'hidden' : ''}`}>
+                        <Package className="w-8 h-8 text-muted-foreground/40" />
+                      </div>
+                    ) : null}
+
+                    {/* Hover-to-reveal cost price overlay */}
+                    <div
+                      className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="text-[10px] text-white/70 uppercase tracking-wide">Cost Price</p>
+                      <p className="text-sm font-bold text-white">{formatCurrency(p.cost_price || 0)}</p>
+                      <p className="text-[10px] text-green-400 mt-0.5">
+                        Profit: {formatCurrency((displayPrice || 0) - (p.cost_price || 0))}
+                      </p>
+                    </div>
                   </div>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${available > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>{available}</span>
+                  <p className="text-xs font-semibold text-foreground leading-tight mb-0.5 line-clamp-2">{p.name}</p>
+                  <p className="text-[10px] text-muted-foreground mb-1">{p.sku}</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-blue-600">{formatCurrency(displayPrice)}</p>
+                      {multiUnit && saleUnit && (
+                        <p className="text-[9px] text-muted-foreground">per {saleUnit.unit_name}</p>
+                      )}
+                    </div>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${available > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>{available}</span>
+                  </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -934,6 +1041,78 @@ export default function POSPage() {
                   <p className="text-sm font-bold text-blue-600">{formatCurrency(unitSelectorProduct.sale_price)}</p>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Change Modal */}
+      {showImageModal && imageModalProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div>
+                <h3 className="font-bold text-sm flex items-center gap-2"><ImagePlus className="w-4 h-4" /> Product Image</h3>
+                <p className="text-xs text-muted-foreground truncate">{imageModalProduct.name}</p>
+              </div>
+              <button onClick={() => setShowImageModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Current image preview */}
+              <div className="w-full h-40 bg-muted rounded-xl overflow-hidden flex items-center justify-center">
+                {imageModalUrl ? (
+                  <img src={imageModalUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                ) : (
+                  <div className="flex flex-col items-center text-muted-foreground">
+                    <Package className="w-12 h-12 text-muted-foreground/30 mb-2" />
+                    <p className="text-xs">No image set</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Image URL input */}
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">IMAGE URL</label>
+                <input
+                  type="text"
+                  value={imageModalUrl}
+                  onChange={e => setImageModalUrl(e.target.value)}
+                  placeholder="https://images.pexels.com/photos/..."
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">Paste an image URL (e.g. from Pexels)</p>
+              </div>
+
+              {/* Toggle: set as default for all products */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={imageModalIsDefault}
+                  onChange={e => setImageModalIsDefault(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                <span className="text-sm text-foreground">Set as default image for all products without images</span>
+              </label>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setShowImageModal(false)} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm font-medium hover:bg-muted transition">Cancel</button>
+                <button
+                  onClick={async () => {
+                    if (imageModalIsDefault) {
+                      await supabase.from('app_settings').upsert({ setting_key: 'product_defaults', setting_value: { default_image_url: imageModalUrl } });
+                      setDefaultProductImage(imageModalUrl);
+                    } else if (imageModalProduct) {
+                      await supabase.from('products').update({ image_url: imageModalUrl || null }).eq('id', imageModalProduct.id);
+                      setProducts(prev => prev.map(p => p.id === imageModalProduct.id ? { ...p, image_url: imageModalUrl || undefined } : p));
+                    }
+                    setShowImageModal(false);
+                    toast({ title: imageModalIsDefault ? 'Default image updated' : 'Product image updated' });
+                  }}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition"
+                >
+                  Save Image
+                </button>
+              </div>
             </div>
           </div>
         </div>
