@@ -20,7 +20,7 @@ import { printNode } from '@/lib/print';
 
 const statusConfig: Record<InvoiceStatus, { label: string; color: string; bg: string }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bg: 'bg-gray-100' },
-  sent: { label: 'Sent', color: 'text-blue-600', bg: 'bg-blue-100' },
+  sent: { label: 'On Credit', color: 'text-blue-600', bg: 'bg-blue-100' },
   partially_paid: { label: 'Partial', color: 'text-amber-600', bg: 'bg-amber-100' },
   paid: { label: 'Paid', color: 'text-green-600', bg: 'bg-green-100' },
   overdue: { label: 'Overdue', color: 'text-red-600', bg: 'bg-red-100' },
@@ -70,7 +70,7 @@ export default function SalesPage() {
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
-  const [period, setPeriod] = useState<'today' | 'last7' | 'last30' | 'all'>('today');
+  const [period, setPeriod] = useState<'today' | 'last7' | 'last30' | 'all' | 'custom'>('today');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [productFilteredIds, setProductFilteredIds] = useState<Set<string> | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<{ code: string; name: string }[]>([]);
@@ -89,7 +89,7 @@ export default function SalesPage() {
   const [cancellingInvoice, setCancellingInvoice] = useState<InvoiceWithCustomer | null>(null);
   const [viewTab, setViewTab] = useState<'details' | 'history' | 'cost-history'>('details');
 
-  useEffect(() => { loadData(); }, [period]);
+  useEffect(() => { loadData(); }, [period, filterDateFrom, filterDateTo]);
 
   function getPeriodRange() {
     const today = new Date().toISOString().split('T')[0];
@@ -101,6 +101,9 @@ export default function SalesPage() {
     if (period === 'last30') {
       const d = new Date(); d.setDate(d.getDate() - 29);
       return { from: d.toISOString().split('T')[0], to: today };
+    }
+    if (period === 'custom') {
+      return { from: filterDateFrom || '', to: filterDateTo || '' };
     }
     return { from: '', to: '' };
   }
@@ -362,7 +365,7 @@ export default function SalesPage() {
             <div className="no-print flex items-center justify-end gap-2 px-8 py-4 border-t border-border">
               {invoice.status === 'draft' && (
                 <button onClick={() => onUpdateStatus('sent')} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition">
-                  <Send className="w-4 h-4" />Mark as Sent
+                  <Send className="w-4 h-4" />Mark as On Credit
                 </button>
               )}
               {balance > 0 && (invoice.status === 'sent' || invoice.status === 'partially_paid') && (
@@ -423,8 +426,6 @@ export default function SalesPage() {
 
     // Advanced filters
     if (filterCustomer && i.customer_id !== filterCustomer) return false;
-    if (filterDateFrom && i.invoice_date < filterDateFrom) return false;
-    if (filterDateTo && i.invoice_date > filterDateTo) return false;
 
     return true;
   });
@@ -502,6 +503,7 @@ export default function SalesPage() {
           { value: 'last7', label: 'Last 7 Days' },
           { value: 'last30', label: 'Last 30 Days' },
           { value: 'all', label: 'All Time' },
+          { value: 'custom', label: 'Custom' },
         ] as const).map(opt => (
           <button
             key={opt.value}
@@ -511,6 +513,13 @@ export default function SalesPage() {
             {opt.label}
           </button>
         ))}
+        {period === 'custom' && (
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-border p-4 shadow-sm space-y-3">
@@ -555,18 +564,10 @@ export default function SalesPage() {
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Date From</label>
-              <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Date To</label>
-              <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
-            </div>
           </div>
         )}
 
-        {(filterProduct || filterCustomer || filterDateFrom || filterDateTo) && (
+        {(filterProduct || filterCustomer) && (
           <div className="flex flex-wrap gap-2 pt-2">
             {filterProduct && (
               <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
@@ -580,20 +581,8 @@ export default function SalesPage() {
                 <button onClick={() => setFilterCustomer('')} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
               </span>
             )}
-            {filterDateFrom && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full">
-                From: {filterDateFrom}
-                <button onClick={() => setFilterDateFrom('')} className="hover:text-amber-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            {filterDateTo && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full">
-                To: {filterDateTo}
-                <button onClick={() => setFilterDateTo('')} className="hover:text-amber-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
             <button
-              onClick={() => { setFilterProduct(''); setFilterCustomer(''); setFilterDateFrom(''); setFilterDateTo(''); }}
+              onClick={() => { setFilterProduct(''); setFilterCustomer(''); }}
               className="text-xs text-muted-foreground hover:text-red-600 underline"
             >
               Clear all
@@ -718,7 +707,7 @@ export default function SalesPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-0.5 sm:gap-1">
                         {inv.status === 'draft' && (
-                          <button onClick={() => updateInvoiceStatus(inv, 'sent')} className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title="Mark as Sent">
+                          <button onClick={() => updateInvoiceStatus(inv, 'sent')} className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition" title="Mark as On Credit">
                             <Send className="w-3.5 h-3.5" />
                           </button>
                         )}
