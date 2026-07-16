@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Search, Eye, Send, X, Trash2, FileText, ArrowRight, UserPlus, CreditCard, DollarSign, CircleCheck as CheckCircle, Printer, Share2, MessageCircle, Mail, Filter, ChevronDown, TriangleAlert as AlertTriangle } from 'lucide-react';
+import { Plus, Search, Eye, EyeOff, Send, X, Trash2, FileText, ArrowRight, UserPlus, CreditCard, DollarSign, CircleCheck as CheckCircle, Printer, Share2, MessageCircle, Mail, Filter, ChevronDown, TriangleAlert as AlertTriangle } from 'lucide-react';
 import type { Quotation, QuotationStatus, Customer, Product, ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 import ProductSearchInput from '@/components/ui/ProductSearchInput';
@@ -437,6 +437,7 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
     issue_date: new Date().toISOString().split('T')[0],
     expiry_date: '',
     notes: '',
+    extra_discount: 0,
   });
   const [items, setItems] = useState<{
     product_id: string;
@@ -529,6 +530,7 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
   const subtotal = items.reduce((sum, item) => {
     return sum + (item.quantity * item.unit_price * (1 - item.discount_percent / 100));
   }, 0);
+  const totalAmount = Math.max(0, subtotal - (form.extra_discount || 0));
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -550,9 +552,10 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
         issue_date: form.issue_date,
         expiry_date: form.expiry_date || null,
         subtotal,
+        extra_discount: form.extra_discount || 0,
         discount_amount: 0,
         tax_amount: 0,
-        total_amount: subtotal,
+        total_amount: totalAmount,
         status: 'draft',
         notes: form.notes || null,
       })
@@ -796,9 +799,32 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
             </div>
 
             <div className="flex justify-end bg-muted/30 rounded-lg p-3">
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Total</p>
-                <p className="text-lg font-bold text-foreground">{formatCurrency(subtotal)}</p>
+              <div className="text-right w-full max-w-xs space-y-2">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-muted-foreground">Subtotal</p>
+                  <p className="text-sm font-semibold text-foreground">{formatCurrency(subtotal)}</p>
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                  <label className="text-xs text-muted-foreground">Extra Discount ৳</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.extra_discount || 0}
+                    onChange={e => setForm({ ...form, extra_discount: parseFloat(e.target.value) || 0 })}
+                    className="w-24 border border-border rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                {(form.extra_discount || 0) > 0 && (
+                  <div className="flex justify-between text-xs text-red-500">
+                    <span>Extra Discount</span>
+                    <span>-{formatCurrency(form.extra_discount || 0)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center pt-1 border-t border-border">
+                  <p className="text-xs font-medium text-muted-foreground">Total</p>
+                  <p className="text-lg font-bold text-foreground">{formatCurrency(totalAmount)}</p>
+                </div>
               </div>
             </div>
 
@@ -1120,6 +1146,7 @@ function ViewQuotationModal({ quotation, items, onClose, onConvert, companySetti
 }) {
   const cfg = statusConfig[quotation.status as QuotationStatus] || statusConfig.draft;
   const printRef = useRef<HTMLDivElement>(null);
+  const [hideDiscountPercent, setHideDiscountPercent] = useState(false);
 
   function buildShareText() {
     const lines = [
@@ -1169,6 +1196,14 @@ function ViewQuotationModal({ quotation, items, onClose, onConvert, companySetti
             <button onClick={() => printNode(printRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition">
               <Printer className="w-3.5 h-3.5" />Print
             </button>
+            <button
+              onClick={() => setHideDiscountPercent(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition ${hideDiscountPercent ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-muted/40 text-muted-foreground hover:bg-muted/60'}`}
+              title="Toggle discount percentage visibility on print"
+            >
+              {hideDiscountPercent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {hideDiscountPercent ? 'Disc% Hidden' : 'Disc% Visible'}
+            </button>
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
           </div>
         </div>
@@ -1204,6 +1239,8 @@ function ViewQuotationModal({ quotation, items, onClose, onConvert, companySetti
             }))}
             subtotal={Number(quotation.subtotal)}
             discountTotal={items.reduce((s, item: any) => s + (item.quantity * item.unit_price * (item.discount_percent || 0) / 100), 0)}
+            extraDiscount={Number((quotation as any).extra_discount) || 0}
+            hideDiscountPercent={hideDiscountPercent}
             totalAmount={Number(quotation.total_amount)}
             notes={(quotation as any).notes}
           />

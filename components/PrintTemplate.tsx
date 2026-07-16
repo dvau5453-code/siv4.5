@@ -48,6 +48,8 @@ export interface PrintTemplateProps {
   items: PrintItem[];
   subtotal: number;
   discountTotal?: number;
+  extraDiscount?: number;
+  hideDiscountPercent?: boolean;
   totalAmount: number;
   amountPaid?: number;
   balanceDue?: number;
@@ -118,6 +120,8 @@ export default function PrintTemplate({
   items,
   subtotal,
   discountTotal = 0,
+  extraDiscount = 0,
+  hideDiscountPercent = false,
   totalAmount,
   amountPaid = 0,
   balanceDue = 0,
@@ -498,7 +502,7 @@ export default function PrintTemplate({
                 { label: 'UNIT',        align: 'center' as const, width: '64px'  },
                 { label: 'QTY',         align: 'center' as const, width: '48px'  },
                 { label: 'RATE (৳)',    align: 'right'  as const, width: '88px'  },
-                { label: 'DISC %',      align: 'center' as const, width: '58px'  },
+                ...(hideDiscountPercent ? [] : [{ label: 'DISC %',      align: 'center' as const, width: '58px'  }]),
                 { label: 'AMOUNT (৳)', align: 'right'  as const, width: '96px'  },
               ].map((col) => (
                 <th
@@ -521,7 +525,7 @@ export default function PrintTemplate({
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#aaa', fontSize: '13px' }}>
+                <td colSpan={hideDiscountPercent ? 7 : 8} style={{ padding: '20px', textAlign: 'center', color: '#aaa', fontSize: '13px' }}>
                   No items
                 </td>
               </tr>
@@ -540,9 +544,11 @@ export default function PrintTemplate({
                   <td style={{ padding: '3px 8px', textAlign: 'center', fontSize: '11px', color: '#555' }}>{item.unit_name || '—'}</td>
                   <td style={{ padding: '3px 8px', textAlign: 'center', fontSize: '11px' }}>{item.quantity}</td>
                   <td style={{ padding: '3px 8px', textAlign: 'right',  fontSize: '11px' }}>{Number(item.unit_price).toFixed(2)}</td>
-                  <td style={{ padding: '3px 8px', textAlign: 'center', fontSize: '11px', color: '#555' }}>
-                    {(item.discount_percent || 0) > 0 ? `${item.discount_percent}%` : '—'}
-                  </td>
+                  {!hideDiscountPercent && (
+                    <td style={{ padding: '3px 8px', textAlign: 'center', fontSize: '11px', color: '#555' }}>
+                      {(item.discount_percent || 0) > 0 ? `${item.discount_percent}%` : '—'}
+                    </td>
+                  )}
                   <td style={{ padding: '3px 8px', textAlign: 'right', fontSize: '11px', fontWeight: '600' }}>
                     {Number(item.subtotal).toFixed(2)}
                   </td>
@@ -559,7 +565,7 @@ export default function PrintTemplate({
                   borderBottom: '1px solid #e8edf6',
                 }}
               >
-                {Array.from({ length: 8 }).map((_, colIdx) => (
+                {Array.from({ length: hideDiscountPercent ? 7 : 8 }).map((_, colIdx) => (
                   <td key={colIdx} style={{ padding: '3px 8px', fontSize: '11px', height: '20px' }}>&nbsp;</td>
                 ))}
               </tr>
@@ -607,10 +613,18 @@ export default function PrintTemplate({
                   <td style={{ padding: '2px 0', color: '#555' }}>Subtotal</td>
                   <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: '500' }}>{fmt(subtotal + discountTotal)}</td>
                 </tr>
-                <tr>
-                  <td style={{ padding: '2px 0', color: '#555' }}>Discount</td>
-                  <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: '500' }}>{fmt(discountTotal)}</td>
-                </tr>
+                {discountTotal > 0 && (
+                  <tr>
+                    <td style={{ padding: '2px 0', color: '#555' }}>Discount</td>
+                    <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: '500' }}>{fmt(discountTotal)}</td>
+                  </tr>
+                )}
+                {extraDiscount > 0 && (
+                  <tr>
+                    <td style={{ padding: '2px 0', color: '#555' }}>Extra Discount</td>
+                    <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: '500' }}>{fmt(extraDiscount)}</td>
+                  </tr>
+                )}
                 <tr>
                   <td style={{ padding: '2px 0', color: '#555' }}>VAT (0%)</td>
                   <td style={{ padding: '2px 0', textAlign: 'right', fontWeight: '500' }}>৳0.00</td>

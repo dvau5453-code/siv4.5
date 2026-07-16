@@ -22,6 +22,7 @@ interface CartItem {
   selected_unit?: ProductUnit;
   unit_price: number;
   base_quantity: number;
+  discount_percent: number;
 }
 
 type PaymentTerm = 'full' | 'partial' | 'credit';
@@ -59,6 +60,7 @@ export default function POSPage() {
   const [paymentTerm, setPaymentTerm] = useState<PaymentTerm>('full');
   const [partialAmount, setPartialAmount] = useState('');
   const [discount, setDiscount] = useState(0);
+  const [extraDiscount, setExtraDiscount] = useState(0);
   const [orderComplete, setOrderComplete] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [lastInvoiceNumber, setLastInvoiceNumber] = useState('');
@@ -212,6 +214,7 @@ export default function POSPage() {
         selected_unit: unit,
         unit_price: unitPrice,
         base_quantity: convertToBaseUnit(1, unit),
+        discount_percent: 0,
       }];
     });
 
@@ -249,6 +252,13 @@ export default function POSPage() {
     ));
   }
 
+  function updateCartItemDiscount(id: string, unitId: string | undefined, disc: number) {
+    const clamped = Math.min(100, Math.max(0, disc));
+    setCart(prev => prev.map(i =>
+      (i.id === id && i.selected_unit?.id === unitId) ? { ...i, discount_percent: clamped } : i
+    ));
+  }
+
   function updateCartQuantity(id: string, unitId: string | undefined, newQty: number) {
     if (isNaN(newQty) || newQty < 0) return;
     setCart(prev => prev.map(i => {
@@ -272,9 +282,12 @@ export default function POSPage() {
     });
   }
 
-  const subtotal = cart.reduce((s, i) => s + i.unit_price * i.quantity, 0);
-  const discountAmount = (subtotal * discount) / 100;
-  const total = subtotal - discountAmount;
+  const lineTotals = cart.map(i => i.unit_price * i.quantity * (1 - (i.discount_percent || 0) / 100));
+  const subtotal = lineTotals.reduce((s, t) => s + t, 0);
+  const itemDiscountTotal = cart.reduce((s, i, idx) => s + (i.unit_price * i.quantity - lineTotals[idx]), 0);
+  const cartDiscountAmount = (subtotal * discount) / 100;
+  const discountAmount = cartDiscountAmount;
+  const total = Math.max(0, subtotal - cartDiscountAmount - extraDiscount);
 
   async function processOrder() {
     if (cart.length === 0) { toast({ title: 'Cart is empty', variant: 'destructive' }); return; }
@@ -322,8 +335,9 @@ export default function POSPage() {
           invoice_number: invoiceNumber,
           customer_id: customerId,
           invoice_date: new Date().toISOString().split('T')[0],
-          subtotal: subtotal,
-          discount_amount: discountAmount,
+          subtotal: subtotal + itemDiscountTotal,
+          discount_amount: cartDiscountAmount + itemDiscountTotal,
+          extra_discount: extraDiscount,
           tax_amount: 0,
           total_amount: total,
           amount_paid: paymentTerm === 'full' ? total : (paymentTerm === 'partial' ? amountPaid : 0),
@@ -342,9 +356,9 @@ export default function POSPage() {
         quantity: item.quantity,
         unit_price: item.unit_price,
         cost_price: item.cost_price || 0,
-        discount_percent: discount,
+        discount_percent: item.discount_percent || 0,
         tax_rate: 0,
-        subtotal: item.quantity * item.unit_price,
+        subtotal: item.quantity * item.unit_price * (1 - (item.discount_percent || 0) / 100),
         unit_name: item.selected_unit?.unit_name,
         unit_conversion_factor: item.selected_unit?.conversion_factor,
         base_quantity: item.base_quantity,
@@ -451,6 +465,7 @@ export default function POSPage() {
 
       setCart([]);
       setDiscount(0);
+      setExtraDiscount(0);
       setSelectedCustomer(walkInCustomerId);
       setStoreCreditBalance(0);
       setApplyStoreCredit(false);
@@ -848,7 +863,7 @@ export default function POSPage() {
       {/* Cart - Desktop Side Panel / Mobile Bottom Drawer / Maximized Overlay */}
       <div className={`
         ${cartMaximized ? 'fixed inset-0 z-[100]' : 'fixed lg:relative inset-x-0 bottom-0 lg:inset-auto'}
-        ${cartMaximized ? 'w-full h-full lg:w-full lg:h-full' : 'lg:w-80'}
+        ${cartMaximized ? 'w-full h-full lg:w-full lg:h-full' : 'lg:w-96'}
         flex flex-col bg-white
         ${cartMaximized ? 'rounded-none lg:rounded-none' : 'rounded-t-3xl lg:rounded-2xl'}
         border border-border shadow-sm overflow-hidden relative
@@ -939,7 +954,24 @@ export default function POSPage() {
                     className="w-14 text-[10px] border border-border rounded px-1 py-0.5 focus:outline-none focus:border-blue-400 text-right bg-white"
                   />
                   {item.selected_unit && <span className="text-[10px] text-muted-foreground">/ {item.selected_unit.unit_short || item.selected_unit.unit_name}</span>}
+                  <span className="text-[10px] text-muted-foreground ml-1">Disc%</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={item.discount_percent || 0}
+                    onChange={e => updateCartItemDiscount(item.id, item.selected_unit?.id, parseFloat(e.target.value) || 0)}
+                    onClick={e => e.stopPropagation()}
+                    className="w-10 text-[10px] border border-amber-300 rounded px-1 py-0.5 focus:outline-none focus:border-amber-400 text-center bg-amber-50/30"
+                    placeholder="0"
+                  />
                 </div>
+                {(item.discount_percent || 0) > 0 && (
+                  <p className="text-[9px] text-amber-600 mt-0.5">
+                    {formatCurrency(item.unit_price * item.quantity)} → {formatCurrency(item.unit_price * item.quantity * (1 - (item.discount_percent || 0) / 100))}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={() => updateQty(item.id, item.selected_unit?.id, -1)} className="w-5 h-5 rounded-full bg-white border border-border flex items-center justify-center hover:bg-muted transition"><Minus className="w-2.5 h-2.5" /></button>
@@ -1015,13 +1047,19 @@ export default function POSPage() {
         {cart.length > 0 && (
           <div className="p-3 border-t border-border space-y-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground flex-1">Discount %</span>
+              <span className="text-xs text-muted-foreground flex-1">Cart Discount %</span>
               <input type="number" min="0" max="100" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="w-16 border border-border rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground flex-1">Extra Discount ৳</span>
+              <input type="number" min="0" step="0.01" value={extraDiscount} onChange={e => setExtraDiscount(Number(e.target.value) || 0)} className="w-20 border border-border rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
             </div>
 
             <div className="space-y-1 text-xs">
-              <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-              {discount > 0 && <div className="flex justify-between text-red-500"><span>Discount ({discount}%)</span><span>-{formatCurrency(discountAmount)}</span></div>}
+              <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatCurrency(subtotal + itemDiscountTotal)}</span></div>
+              {itemDiscountTotal > 0 && <div className="flex justify-between text-amber-600"><span>Item Discounts</span><span>-{formatCurrency(itemDiscountTotal)}</span></div>}
+              {discount > 0 && <div className="flex justify-between text-red-500"><span>Cart Discount ({discount}%)</span><span>-{formatCurrency(cartDiscountAmount)}</span></div>}
+              {extraDiscount > 0 && <div className="flex justify-between text-red-500"><span>Extra Discount</span><span>-{formatCurrency(extraDiscount)}</span></div>}
               <div className="flex justify-between font-bold text-base text-foreground pt-1 border-t border-border"><span>Total</span><span>{formatCurrency(total)}</span></div>
             </div>
 
@@ -1055,6 +1093,9 @@ export default function POSPage() {
           subtotal={subtotal}
           discount={discount}
           discountAmount={discountAmount}
+          extraDiscount={extraDiscount}
+          itemDiscountTotal={itemDiscountTotal}
+          cartDiscountAmount={cartDiscountAmount}
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
           displayMethods={displayMethods}
@@ -1432,13 +1473,13 @@ function AddCustomerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 }
 
 function CheckoutModal({
-  total, subtotal, discount, discountAmount, paymentMethod, setPaymentMethod,
+  total, subtotal, discount, discountAmount, extraDiscount, itemDiscountTotal, cartDiscountAmount, paymentMethod, setPaymentMethod,
   displayMethods, paymentMethodIcons, paymentMethodColors,
   amountPaid, setAmountPaid, processing, onConfirm, onClose,
   storeCreditBalance, applyStoreCredit, setApplyStoreCredit, selectedCustomer, customers, cart,
   paymentTerm, setPaymentTerm, partialAmount, setPartialAmount,
 }: {
-  total: number; subtotal: number; discount: number; discountAmount: number;
+  total: number; subtotal: number; discount: number; discountAmount: number; extraDiscount: number; itemDiscountTotal: number; cartDiscountAmount: number;
   paymentMethod: string; setPaymentMethod: (m: string) => void;
   displayMethods: any[]; paymentMethodIcons: Record<string, any>; paymentMethodColors: Record<string, string>;
   amountPaid: string; setAmountPaid: (v: string) => void;
@@ -1472,9 +1513,15 @@ function CheckoutModal({
         <div className="p-6 space-y-4 overflow-y-auto">
           {/* Order summary */}
           <div className="bg-muted/30 rounded-xl p-3 space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
-            {discountAmount > 0 && (
-              <div className="flex justify-between text-red-600"><span>Discount ({discount}%)</span><span>-{formatCurrency(discountAmount)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">{formatCurrency(subtotal + itemDiscountTotal)}</span></div>
+            {itemDiscountTotal > 0 && (
+              <div className="flex justify-between text-amber-600"><span>Item Discounts</span><span>-{formatCurrency(itemDiscountTotal)}</span></div>
+            )}
+            {cartDiscountAmount > 0 && (
+              <div className="flex justify-between text-red-600"><span>Cart Discount ({discount}%)</span><span>-{formatCurrency(cartDiscountAmount)}</span></div>
+            )}
+            {extraDiscount > 0 && (
+              <div className="flex justify-between text-red-600"><span>Extra Discount</span><span>-{formatCurrency(extraDiscount)}</span></div>
             )}
             <div className="flex justify-between text-base font-bold pt-1 border-t border-border"><span>Total Due</span><span className="text-blue-600">{formatCurrency(total)}</span></div>
           </div>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { toast } from '@/hooks/use-toast';
-import { ShoppingCart, Plus, Search, Eye, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, Printer, DollarSign, Send, CreditCard, UserPlus, RotateCcw, Package, Filter, ChevronDown, Wallet, CircleArrowDown as ArrowDownCircle, CircleArrowUp as ArrowUpCircle, Truck, Calendar, ExternalLink, Pencil, History, Ban, TriangleAlert as AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, EyeOff, X, Trash2, TrendingUp, Clock, CircleCheck as CheckCircle2, Printer, DollarSign, Send, CreditCard, UserPlus, RotateCcw, Package, Filter, ChevronDown, Wallet, CircleArrowDown as ArrowDownCircle, CircleArrowUp as ArrowUpCircle, Truck, Calendar, ExternalLink, Pencil, History, Ban, TriangleAlert as AlertTriangle } from 'lucide-react';
 import DeliveryChallan from '@/components/DeliveryChallan';
 import EditInvoiceModal from '@/components/EditInvoiceModal';
 import EditHistoryPanel from '@/components/EditHistoryPanel';
@@ -260,6 +260,7 @@ export default function SalesPage() {
     const balance = Number(invoice.balance_due ?? (Number(invoice.total_amount) - Number(invoice.amount_paid)));
     const discountTotal = items.reduce((s, item) => s + (item.quantity * item.unit_price * (item.discount_percent || 0) / 100), 0);
     const printRef = useRef<HTMLDivElement>(null);
+    const [hideDiscountPercent, setHideDiscountPercent] = useState(false);
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -293,6 +294,14 @@ export default function SalesPage() {
               )}
               <button onClick={() => printNode(printRef.current)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition">
                 <Printer className="w-3.5 h-3.5" />Print
+              </button>
+              <button
+                onClick={() => setHideDiscountPercent(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition ${hideDiscountPercent ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-muted/40 text-muted-foreground hover:bg-muted/60'}`}
+                title="Toggle discount percentage visibility on print"
+              >
+                {hideDiscountPercent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {hideDiscountPercent ? 'Disc% Hidden' : 'Disc% Visible'}
               </button>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="w-5 h-5" /></button>
             </div>
@@ -331,6 +340,8 @@ export default function SalesPage() {
               }))}
               subtotal={Number(invoice.subtotal)}
               discountTotal={discountTotal}
+              extraDiscount={Number((invoice as any).extra_discount) || 0}
+              hideDiscountPercent={hideDiscountPercent}
               totalAmount={Number(invoice.total_amount)}
               amountPaid={Number(invoice.amount_paid)}
               balanceDue={balance}
@@ -835,6 +846,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
     amount_paid: 0,
     payment_method: 'cash' as PaymentMethod,
     payment_reference: '',
+    extra_discount: 0,
   });
   const [items, setItems] = useState<{
     product_id: string;
@@ -956,8 +968,8 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
   const subtotal = items.reduce((sum, item) => {
     return sum + item.quantity * item.unit_price * (1 - (item.discount_percent || 0) / 100);
   }, 0);
-
-  const amountPaid = form.payment_type === 'full' ? subtotal : (form.payment_type === 'partial' ? form.amount_paid : 0);
+  const totalAmount = Math.max(0, subtotal - (form.extra_discount || 0));
+  const amountPaid = form.payment_type === 'full' ? totalAmount : (form.payment_type === 'partial' ? form.amount_paid : 0);
 
   async function handleAddCustomer(newCustomerId: string) {
     const { data } = await supabase.from('customers').select('*').eq('id', newCustomerId).single();
@@ -972,7 +984,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
     if (!form.customer_id) { setError('Please select a customer'); return; }
     if (items.length === 0) { setError('Please add at least one item'); return; }
     if (form.payment_type === 'partial' && form.amount_paid <= 0) { setError('Please enter payment amount for partial payment'); return; }
-    if (form.payment_type === 'partial' && form.amount_paid >= subtotal) { setError('Partial payment must be less than total. Use "Full Payment" instead.'); return; }
+    if (form.payment_type === 'partial' && form.amount_paid >= totalAmount) { setError('Partial payment must be less than total. Use "Full Payment" instead.'); return; }
 
     // Final stock validation before saving
     for (const item of items) {
@@ -987,7 +999,6 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
 
     const { data: invoiceNum } = await supabase.rpc('generate_invoice_number');
     const invoiceNumber = invoiceNum || `INV-${Date.now().toString().slice(-6)}`;
-    const totalAmount = subtotal;
 
     const { data: invoice, error: invError } = await supabase
       .from('invoices')
@@ -997,6 +1008,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
         invoice_date: form.invoice_date,
         due_date: form.due_date || null,
         subtotal,
+        extra_discount: form.extra_discount || 0,
         total_amount: totalAmount,
         amount_paid: amountPaid,
         status: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'partially_paid' : 'draft'),
@@ -1300,9 +1312,32 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
           </div>
 
           <div className="flex justify-end bg-muted/30 rounded-lg p-3">
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Subtotal</p>
-              <p className="text-lg font-bold text-foreground">{formatCurrency(subtotal)}</p>
+            <div className="text-right w-full max-w-xs space-y-2">
+              <div className="flex justify-between items-center">
+                <p className="text-xs text-muted-foreground">Subtotal</p>
+                <p className="text-sm font-semibold text-foreground">{formatCurrency(subtotal)}</p>
+              </div>
+              <div className="flex justify-between items-center gap-2">
+                <label className="text-xs text-muted-foreground">Extra Discount ৳</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.extra_discount || 0}
+                  onChange={e => setForm({ ...form, extra_discount: parseFloat(e.target.value) || 0 })}
+                  className="w-24 border border-border rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              {(form.extra_discount || 0) > 0 && (
+                <div className="flex justify-between text-xs text-red-500">
+                  <span>Extra Discount</span>
+                  <span>-{formatCurrency(form.extra_discount || 0)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-1 border-t border-border">
+                <p className="text-xs font-medium text-muted-foreground">Total</p>
+                <p className="text-lg font-bold text-foreground">{formatCurrency(totalAmount)}</p>
+              </div>
             </div>
           </div>
 
@@ -1329,7 +1364,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
               </button>
               <button
                 type="button"
-                onClick={() => setForm({ ...form, payment_type: 'full', amount_paid: subtotal })}
+                onClick={() => setForm({ ...form, payment_type: 'full', amount_paid: totalAmount })}
                 className={`p-3 border rounded-lg text-center transition ${form.payment_type === 'full' ? 'border-green-600 bg-green-50 text-green-700' : 'border-border hover:border-gray-300'}`}
               >
                 <CheckCircle2 className="w-5 h-5 mx-auto mb-1" />
@@ -1388,7 +1423,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
                       placeholder={`Enter amount (Max: ${formatCurrency(subtotal)})`}
                     />
                     <p className="text-xs text-green-700 mt-1 font-medium">
-                      Balance Due After Payment: {formatCurrency(subtotal - form.amount_paid)}
+                      Balance Due After Payment: {formatCurrency(totalAmount - form.amount_paid)}
                     </p>
                   </div>
                 )}
