@@ -48,6 +48,7 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
   });
   const [items, setItems] = useState<EditItem[]>([]);
   const [originalItems, setOriginalItems] = useState<EditItem[]>([]);
+  const [originalQtyMap, setOriginalQtyMap] = useState<Record<string, number>>({});
   const [originalHeader, setOriginalHeader] = useState({ ...form });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -98,7 +99,19 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
 
     setItems(mapped);
     setOriginalItems(mapped.map(m => ({ ...m })));
+
+    const qtyMap: Record<string, number> = {};
+    for (const m of mapped) {
+      qtyMap[m.product_id] = (qtyMap[m.product_id] || 0) + m.base_quantity;
+    }
+    setOriginalQtyMap(qtyMap);
+
     setLoadingItems(false);
+  }
+
+  function getEffectiveStock(productId: string, currentStock: number | null): number | null {
+    if (currentStock === null) return null;
+    return currentStock + (originalQtyMap[productId] || 0);
   }
 
   function addProductToItems(product: any) {
@@ -107,8 +120,9 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
     const unitPrice = defaultUnit ? defaultUnit.price : (product.sale_price || 0);
     const baseQty = defaultUnit ? convertToBaseUnit(1, defaultUnit) : 1;
     const stock = product.inventory_items?.reduce((s: number, i: any) => s + Number(i.quantity_on_hand), 0) ?? null;
+    const effStock = getEffectiveStock(product.id, stock);
 
-    if (stock !== null && stock <= 0) {
+    if (effStock !== null && effStock <= 0) {
       toast({ title: 'Out of stock', description: `${product.name} is not available`, variant: 'destructive' });
       return;
     }
@@ -121,8 +135,9 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
       const ex = updated[existingIndex];
       const newQty = ex.quantity + 1;
       const newBase = ex.selected_unit ? convertToBaseUnit(newQty, ex.selected_unit) : newQty;
-      if (ex.stock_qty !== null && newBase > ex.stock_qty) {
-        toast({ title: 'Stock limit', description: `Only ${ex.stock_qty} ${ex.product_base_unit || 'units'} available`, variant: 'destructive' });
+      const exEffStock = getEffectiveStock(ex.product_id, ex.stock_qty);
+      if (exEffStock !== null && newBase > exEffStock) {
+        toast({ title: 'Stock limit', description: `Only ${exEffStock} ${ex.product_base_unit || 'units'} available`, variant: 'destructive' });
         return;
       }
       updated[existingIndex] = { ...ex, quantity: newQty, base_quantity: newBase, subtotal: newQty * ex.unit_price * (1 - (ex.discount_percent || 0) / 100) };
@@ -188,8 +203,9 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
     if (items.length === 0) { setError('Invoice must have at least one item'); return; }
 
     for (const item of items) {
-      if (item.stock_qty !== null && item.base_quantity > item.stock_qty) {
-        setError(`Insufficient stock for ${item.product_name}. Available: ${item.stock_qty} ${item.product_base_unit || 'units'}`);
+      const effStock = getEffectiveStock(item.product_id, item.stock_qty);
+      if (effStock !== null && item.base_quantity > effStock) {
+        setError(`Insufficient stock for ${item.product_name}. Available: ${effStock} ${item.product_base_unit || 'units'}`);
         return;
       }
     }
@@ -333,11 +349,19 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
                         <td className="px-3 py-2">
                           <p className="text-sm font-medium text-foreground">{item.product_name}</p>
                           <p className="text-[10px] text-muted-foreground">{item.product_sku}</p>
-                          {item.stock_qty !== null && (
-                            <p className={`text-[10px] font-medium ${item.stock_qty > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                              {item.stock_qty} {item.product_base_unit || 'units'} in stock
-                            </p>
-                          )}
+                          {item.stock_qty !== null && (() => {
+                            const restorable = originalQtyMap[item.product_id] || 0;
+                            const effStock = (item.stock_qty ?? 0) + restorable;
+                            const isRestored = restorable > 0 && item.stock_qty === 0;
+                            const isPartialRestore = restorable > 0 && item.stock_qty > 0;
+                            return (
+                              <p className={`text-[10px] font-medium ${effStock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                {effStock} {item.product_base_unit || 'units'} available
+                                {isRestored && ` (from this invoice)`}
+                                {isPartialRestore && ` (incl. ${restorable} from this invoice)`}
+                              </p>
+                            );
+                          })()}
                           {item.available_units && item.selected_unit && (
                             <select
                               value={item.selected_unit.id}
