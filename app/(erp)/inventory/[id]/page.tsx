@@ -66,14 +66,15 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
       lowStock: totalStock <= (prod.min_stock_level || 0),
     });
 
-    // Load sales data (invoice_items with invoice and customer info)
+    // Load sales data (invoice_items with invoice and customer info) - exclude cancelled/draft invoices
     const { data: salesItems } = await supabase
       .from('invoice_items')
       .select(`
         id, quantity, unit_price, discount_percent, subtotal, cost_price, base_quantity, unit_name,
         invoice:invoices!inner(invoice_number, invoice_date, status, created_at, customer:customers(name))
       `)
-      .eq('product_id', id);
+      .eq('product_id', id)
+      .in('invoice.status', ['paid', 'partially_paid', 'sent', 'overdue', 'unpaid']);
 
     // Sort by invoice created_at descending
     const sortedSalesItems = (salesItems || []).sort((a: any, b: any) =>

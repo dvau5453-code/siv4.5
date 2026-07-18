@@ -337,6 +337,7 @@ export default function POSPage() {
           invoice_date: new Date().toISOString().split('T')[0],
           subtotal: subtotal + itemDiscountTotal,
           discount_amount: cartDiscountAmount + itemDiscountTotal,
+          cart_discount_percent: discount,
           extra_discount: extraDiscount,
           tax_amount: 0,
           total_amount: total,
@@ -937,13 +938,14 @@ export default function POSPage() {
               onDragOver={e => { e.preventDefault(); setDragOverItem(index); }}
               onDrop={() => { if (draggedItem !== null && draggedItem !== index) reorderCart(draggedItem, index); setDraggedItem(null); setDragOverItem(null); }}
               onDragEnd={() => { setDraggedItem(null); setDragOverItem(null); }}
-              className={`flex items-center gap-2 bg-muted/30 rounded-xl p-2 transition-all ${draggedItem === index ? 'opacity-40' : ''} ${dragOverItem === index && draggedItem !== index ? 'border-2 border-blue-400' : ''} cursor-grab active:cursor-grabbing`}
+              className={`flex items-center gap-1.5 bg-muted/30 rounded-lg px-1.5 py-1 transition-all ${draggedItem === index ? 'opacity-40' : ''} ${dragOverItem === index && draggedItem !== index ? 'border-2 border-blue-400' : ''} cursor-grab active:cursor-grabbing`}
             >
-              <span className="text-muted-foreground/40 text-xs select-none shrink-0">⠿</span>
+              <span className="text-muted-foreground/40 text-[10px] select-none shrink-0">⠿</span>
+              <button onClick={() => removeFromCart(item.id, item.selected_unit?.id || undefined)} className="text-muted-foreground hover:text-red-500 transition shrink-0"><X className="w-3 h-3" /></button>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold text-foreground truncate">{item.name}</p>
+                <p className="text-[11px] font-semibold text-foreground truncate leading-tight">{item.name}</p>
                 <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground">৳</span>
+                  <span className="text-[9px] text-muted-foreground">৳</span>
                   <input
                     type="number"
                     min="0"
@@ -951,10 +953,9 @@ export default function POSPage() {
                     value={item.unit_price}
                     onChange={e => updateCartPrice(item.id, item.selected_unit?.id, parseFloat(e.target.value) || 0)}
                     onClick={e => e.stopPropagation()}
-                    className="w-14 text-[10px] border border-border rounded px-1 py-0.5 focus:outline-none focus:border-blue-400 text-right bg-white"
+                    className="w-12 text-[10px] border border-border rounded px-1 py-0.5 focus:outline-none focus:border-blue-400 text-right bg-white"
                   />
-                  {item.selected_unit && <span className="text-[10px] text-muted-foreground">/ {item.selected_unit.unit_short || item.selected_unit.unit_name}</span>}
-                  <span className="text-[10px] text-muted-foreground ml-1">Disc%</span>
+                  {item.selected_unit && <span className="text-[9px] text-muted-foreground">/{item.selected_unit.unit_short || item.selected_unit.unit_name}</span>}
                   <input
                     type="number"
                     min="0"
@@ -963,17 +964,13 @@ export default function POSPage() {
                     value={item.discount_percent || 0}
                     onChange={e => updateCartItemDiscount(item.id, item.selected_unit?.id, parseFloat(e.target.value) || 0)}
                     onClick={e => e.stopPropagation()}
-                    className="w-10 text-[10px] border border-amber-300 rounded px-1 py-0.5 focus:outline-none focus:border-amber-400 text-center bg-amber-50/30"
+                    className="w-9 text-[10px] border border-amber-300 rounded px-1 py-0.5 focus:outline-none focus:border-amber-400 text-center bg-amber-50/30"
                     placeholder="0"
+                    title="Discount %"
                   />
                 </div>
-                {(item.discount_percent || 0) > 0 && (
-                  <p className="text-[9px] text-amber-600 mt-0.5">
-                    {formatCurrency(item.unit_price * item.quantity)} → {formatCurrency(item.unit_price * item.quantity * (1 - (item.discount_percent || 0) / 100))}
-                  </p>
-                )}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => updateQty(item.id, item.selected_unit?.id, -1)} className="w-5 h-5 rounded-full bg-white border border-border flex items-center justify-center hover:bg-muted transition"><Minus className="w-2.5 h-2.5" /></button>
                 <input
                   type="number"
@@ -982,11 +979,10 @@ export default function POSPage() {
                   value={item.quantity}
                   onChange={e => updateCartQuantity(item.id, item.selected_unit?.id, parseFloat(e.target.value) || 0)}
                   onClick={e => e.stopPropagation()}
-                  className="w-16 text-xs font-bold border border-border rounded px-1 py-0.5 text-center focus:outline-none focus:border-blue-400 bg-white"
+                  className="w-12 text-xs font-bold border border-border rounded px-1 py-0.5 text-center focus:outline-none focus:border-blue-400 bg-white"
                 />
                 <button onClick={() => updateQty(item.id, item.selected_unit?.id, 1)} className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition"><Plus className="w-2.5 h-2.5" /></button>
               </div>
-              <button onClick={() => removeFromCart(item.id, item.selected_unit?.id || undefined)} className="text-muted-foreground hover:text-red-500 transition"><X className="w-3.5 h-3.5" /></button>
             </div>
             ))
           ) : (
@@ -1045,28 +1041,30 @@ export default function POSPage() {
         </div>
 
         {cart.length > 0 && (
-          <div className="p-3 border-t border-border space-y-3">
+          <div className="p-2.5 border-t border-border space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground flex-1">Cart Discount %</span>
-              <input type="number" min="0" max="100" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="w-16 border border-border rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground flex-1">Extra Discount ৳</span>
-              <input type="number" min="0" step="0.01" value={extraDiscount} onChange={e => setExtraDiscount(Number(e.target.value) || 0)} className="w-20 border border-border rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+              <div className="flex-1 flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">Cart Disc %</span>
+                <input type="number" min="0" max="100" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="flex-1 min-w-0 border border-border rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+              </div>
+              <div className="flex-1 flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">Extra ৳</span>
+                <input type="number" min="0" step="0.01" value={extraDiscount} onChange={e => setExtraDiscount(Number(e.target.value) || 0)} className="flex-1 min-w-0 border border-border rounded-lg px-1.5 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+              </div>
             </div>
 
-            <div className="space-y-1 text-xs">
+            <div className="space-y-0.5 text-[11px]">
               <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatCurrency(subtotal + itemDiscountTotal)}</span></div>
               {itemDiscountTotal > 0 && <div className="flex justify-between text-amber-600"><span>Item Discounts</span><span>-{formatCurrency(itemDiscountTotal)}</span></div>}
               {discount > 0 && <div className="flex justify-between text-red-500"><span>Cart Discount ({discount}%)</span><span>-{formatCurrency(cartDiscountAmount)}</span></div>}
               {extraDiscount > 0 && <div className="flex justify-between text-red-500"><span>Extra Discount</span><span>-{formatCurrency(extraDiscount)}</span></div>}
-              <div className="flex justify-between font-bold text-base text-foreground pt-1 border-t border-border"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between font-bold text-sm text-foreground pt-1 border-t border-border"><span>Total</span><span>{formatCurrency(total)}</span></div>
             </div>
 
             <button
               onClick={() => setShowCheckout(true)}
               disabled={processing || !selectedCustomer}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition disabled:opacity-60 text-sm flex items-center justify-center gap-2"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl transition disabled:opacity-60 text-sm flex items-center justify-center gap-2"
             >
               <Receipt className="w-4 h-4" />
               {processing ? 'Processing...' : `Checkout · ${formatCurrency(total)}`}

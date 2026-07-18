@@ -45,7 +45,7 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
     invoice_date: invoice.invoice_date,
     due_date: invoice.due_date || '',
     notes: (invoice as any).notes || '',
-    cart_discount_percent: 0,
+    cart_discount_percent: Number((invoice as any).cart_discount_percent) || 0,
     extra_discount: Number((invoice as any).extra_discount) || 0,
   });
   const [items, setItems] = useState<EditItem[]>([]);
@@ -237,6 +237,7 @@ export default function EditInvoiceModal({ invoice, customers, products, onClose
         due_date: form.due_date || null,
         notes: form.notes || null,
         extra_discount: form.extra_discount || 0,
+        cart_discount_percent: form.cart_discount_percent || 0,
         items: newItems,
       };
 
