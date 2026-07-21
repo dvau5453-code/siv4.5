@@ -214,6 +214,7 @@ export interface Quotation {
   tax_amount: number;
   total_amount: number;
   notes?: string;
+  reference?: string;
   created_at: string;
   updated_at: string;
   customer?: Customer;
@@ -245,6 +246,7 @@ export interface Invoice {
   balance_due: number;
   is_pos: boolean;
   edit_count?: number;
+  reference?: string;
   created_at: string;
   updated_at: string;
   customer?: Customer;

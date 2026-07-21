@@ -8,6 +8,7 @@ import { Plus, Search, Eye, EyeOff, Send, X, Trash2, FileText, ArrowRight, UserP
 import type { Quotation, QuotationStatus, Customer, Product, ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 import ProductSearchInput from '@/components/ui/ProductSearchInput';
+import CustomerSearchInput from '@/components/ui/CustomerSearchInput';
 import ProductFilterDropdown from '@/components/ui/ProductFilterDropdown';
 import PrintTemplate from '@/components/PrintTemplate';
 import { printNode } from '@/lib/print';
@@ -439,6 +440,7 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
     notes: '',
     extra_discount: 0,
     cart_discount_percent: 0,
+    reference: '',
   });
   const [items, setItems] = useState<{
     product_id: string;
@@ -561,6 +563,7 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
         total_amount: totalAmount,
         status: 'draft',
         notes: form.notes || null,
+        reference: form.reference || null,
       })
       .select()
       .single();
@@ -629,10 +632,12 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
               <div>
                 <label className="block text-xs font-medium mb-1">Customer *</label>
                 <div className="flex gap-1.5">
-                  <select required value={form.customer_id} onChange={e => setForm({ ...form, customer_id: e.target.value })} className="flex-1 min-w-0 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
-                    <option value="">Select customer</option>
-                    {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-                  </select>
+                  <CustomerSearchInput
+                    onSelect={(c) => setForm({ ...form, customer_id: c.id })}
+                    selectedName={customers.find(c => c.id === form.customer_id)?.name}
+                    placeholder="Search customer..."
+                    className="flex-1 min-w-0"
+                  />
                   <button
                     type="button"
                     onClick={() => setShowAddCustomer(true)}
@@ -651,6 +656,11 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
                 <label className="block text-xs font-medium mb-1">Expiry Date</label>
                 <input type="date" value={form.expiry_date} onChange={e => setForm({ ...form, expiry_date: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1">Reference</label>
+              <input type="text" value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Reference person name (e.g. who referred this quotation)" />
             </div>
 
             <div>
@@ -728,7 +738,10 @@ function CreateQuotationModal({ customers: initialCustomers, products, onClose, 
                           <td className="px-3 py-2">
                             <input type="number" min="0" max="100" value={item.discount_percent} onChange={e => updateItem(index, 'discount_percent', e.target.value)} className="w-full border border-border rounded px-2 py-1 text-sm text-right focus:outline-none" />
                           </td>
-                          <td className="px-3 py-2 text-right text-sm font-semibold">{formatCurrency(item.quantity * item.unit_price * (1 - item.discount_percent / 100))}</td>
+                          <td className="px-3 py-2 text-right text-sm font-semibold">
+                            <p className="text-[10px] text-muted-foreground font-normal">{formatCurrency(item.unit_price)} / unit</p>
+                            {formatCurrency(item.quantity * item.unit_price * (1 - item.discount_percent / 100))}
+                          </td>
                           <td className="px-2 py-2">
                             <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                           </td>
@@ -966,6 +979,7 @@ function ConvertToInvoiceModal({ quotation, onClose, onConverted }: {
         amount_paid: effectiveAmountPaid,
         status: invoiceStatus,
         is_pos: false,
+        reference: (quotation as any).reference || null,
       })
       .select()
       .single();
@@ -1266,6 +1280,7 @@ function ViewQuotationModal({ quotation, items, onClose, onConvert, companySetti
             hideDiscountPercent={hideDiscountPercent}
             totalAmount={Number(quotation.total_amount)}
             notes={(quotation as any).notes}
+            reference={(quotation as any).reference}
           />
         </div>
 

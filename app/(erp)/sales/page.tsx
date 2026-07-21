@@ -14,6 +14,7 @@ import Pagination from '@/components/ui/AppPagination';
 import type { Invoice, InvoiceStatus, Customer, Product, Payment, PaymentMethod, ProductUnit } from '@/lib/types';
 import { isMultiUnitEnabled, getDefaultSaleUnit, convertToBaseUnit } from '@/lib/unit-utils';
 import ProductSearchInput from '@/components/ui/ProductSearchInput';
+import CustomerSearchInput from '@/components/ui/CustomerSearchInput';
 import ProductFilterDropdown from '@/components/ui/ProductFilterDropdown';
 import PrintTemplate from '@/components/PrintTemplate';
 import { printNode } from '@/lib/print';
@@ -348,6 +349,7 @@ export default function SalesPage() {
               amountPaid={Number(invoice.amount_paid)}
               balanceDue={balance}
               notes={(invoice as any).notes}
+              reference={(invoice as any).reference}
               payments={payments?.map((p: any) => ({
                 payment_number: p.payment_number,
                 payment_date: p.payment_date,
@@ -853,6 +855,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
     payment_reference: '',
     extra_discount: 0,
     cart_discount_percent: 0,
+    reference: '',
   });
   const [items, setItems] = useState<{
     product_id: string;
@@ -1023,6 +1026,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
         status: amountPaid >= totalAmount ? 'paid' : (amountPaid > 0 ? 'partially_paid' : 'draft'),
         is_pos: false,
         notes: form.notes || null,
+        reference: form.reference || null,
       })
       .select()
       .single();
@@ -1125,10 +1129,12 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
             <div className="col-span-2">
               <label className="block text-xs font-medium mb-1">Customer *</label>
               <div className="flex gap-2">
-                <select required value={form.customer_id} onChange={e => setForm({ ...form, customer_id: e.target.value })} className="flex-1 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none">
-                  <option value="">Select customer</option>
-                  {customerList.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-                </select>
+                <CustomerSearchInput
+                  onSelect={(c) => setForm({ ...form, customer_id: c.id })}
+                  selectedName={customerList.find(c => c.id === form.customer_id)?.name}
+                  placeholder="Search customer by name, code, or phone..."
+                  className="flex-1"
+                />
                 <button
                   type="button"
                   onClick={() => setShowAddCustomer(true)}
@@ -1148,6 +1154,11 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
                 <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Reference</label>
+            <input type="text" value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Reference person name (e.g. who referred this sale)" />
           </div>
 
           <div>
@@ -1239,6 +1250,7 @@ function CreateInvoiceModal({ customers, products, onClose, onSaved }: {
                           <input type="number" min="0" max="100" step="0.5" value={item.discount_percent || 0} onChange={e => updateItem(index, 'discount_percent', e.target.value)} className="w-full border border-border rounded px-2 py-1 text-sm text-right focus:outline-none focus:border-amber-400" placeholder="0" />
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-semibold">
+                          <p className="text-[10px] text-muted-foreground font-normal">{formatCurrency(item.unit_price)} / unit</p>
                           {formatCurrency(lineTotal)}
                           {(item.discount_percent || 0) > 0 && (
                             <p className="text-[10px] text-amber-600 line-through">{formatCurrency(item.quantity * item.unit_price)}</p>

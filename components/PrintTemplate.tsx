@@ -57,6 +57,7 @@ export interface PrintTemplateProps {
   balanceDue?: number;
   notes?: string;
   payments?: PrintPayment[];
+  reference?: string;
   metaFields?: PrintMetaField[];
 }
 
@@ -132,6 +133,7 @@ export default function PrintTemplate({
   notes,
   payments,
   metaFields,
+  reference,
 }: PrintTemplateProps) {
   const normalizedStatus = (status || '').toLowerCase().replace(/\s+/g, '_');
   const badge = statusConfig[normalizedStatus] || { bg: PRIMARY, color: '#fff' };
@@ -472,6 +474,15 @@ export default function PrintTemplate({
                     {salesPerson}
                   </td>
                 </tr>
+                {reference && (
+                  <tr>
+                    <td style={{ color: '#555', paddingBottom: '3px' }}>Reference</td>
+                    <td style={{ color: '#555', paddingBottom: '3px', textAlign: 'center' }}>:</td>
+                    <td style={{ fontWeight: '600', paddingBottom: '3px', textAlign: 'right' }}>
+                      {reference}
+                    </td>
+                  </tr>
+                )}
                 {paymentMethod && (
                   <tr>
                     <td style={{ color: '#555', paddingBottom: '3px', whiteSpace: 'nowrap' }}>Payment Method</td>
